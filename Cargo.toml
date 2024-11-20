@@ -1,5 +1,5 @@
 [workspace]
-members = ["0-showing-window", "1-triangle"]
+members = ["0-showing-window", "1-triangle", "2-triangle-buffer"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -11,3 +11,4 @@ anyhow = "1.0.93"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 better-panic = "0.3.0"
+bytemuck = { version = "1.20.0", features = ["derive"] }
