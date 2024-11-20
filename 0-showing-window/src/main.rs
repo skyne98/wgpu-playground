@@ -1,129 +1,61 @@
-use std::sync::Arc;
-
 use pollster::FutureExt;
-use wgpu::{Adapter, Device, Instance, PresentMode, Queue, Surface, SurfaceCapabilities};
-use winit::application::ApplicationHandler;
-use winit::dpi::{LogicalSize, PhysicalSize, Size};
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::window::{Window, WindowId};
-
+use std::sync::Arc;
 use tracing::info;
-use tracing_subscriber;
+use wgpu::{Adapter, Device, Instance, Queue, Surface, SurfaceCapabilities};
+use winit::{
+    application::ApplicationHandler,
+    dpi::{LogicalSize, PhysicalSize, Size},
+    event::WindowEvent,
+    event_loop::{ActiveEventLoop, EventLoop},
+    window::{Window, WindowId},
+};
 
-pub async fn run() {
-    let event_loop = EventLoop::new().unwrap();
+// Common result type
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-    let mut window_state = StateApplication::new();
-    let _ = event_loop.run_app(&mut window_state);
-}
-
-struct StateApplication<'a> {
-    state: Option<State<'a>>,
-}
-
-impl<'a> StateApplication<'a> {
-    pub fn new() -> Self {
-        Self { state: None }
-    }
-}
-
-impl<'a> ApplicationHandler for StateApplication<'a> {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let configuration = Window::default_attributes()
-            .with_title("Hello, wgpu!")
-            .with_inner_size(Size::Logical(LogicalSize::new(800.0, 600.0)))
-            .with_min_inner_size(Size::Logical(LogicalSize::new(400.0, 300.0)));
-        let window = event_loop.create_window(configuration).unwrap();
-        self.state = Some(State::new(window));
-    }
-
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: WindowId,
-        event: WindowEvent,
-    ) {
-        let window = self.state.as_ref().unwrap().window();
-
-        if window.id() == window_id {
-            match event {
-                WindowEvent::CloseRequested => {
-                    event_loop.exit();
-                }
-                WindowEvent::Resized(physical_size) => {
-                    self.state.as_mut().unwrap().resize(physical_size);
-                }
-                WindowEvent::RedrawRequested => {
-                    self.state.as_mut().unwrap().render().unwrap();
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        let window = self.state.as_ref().unwrap().window();
-        window.request_redraw();
-    }
-}
-
-struct State<'a> {
-    surface: Surface<'a>,
+// GPU Context handling
+struct GpuContext<'a> {
     device: Device,
     queue: Queue,
+    surface: Surface<'a>,
     config: wgpu::SurfaceConfiguration,
-
-    size: PhysicalSize<u32>,
-    window: Arc<Window>,
 }
 
-impl<'a> State<'a> {
-    pub fn new(window: Window) -> Self {
-        let window_arc = Arc::new(window);
-        let size = window_arc.inner_size();
-        let instance = Self::create_gpu_instance();
-        let surface = instance.create_surface(window_arc.clone()).unwrap();
-        let adapter = Self::create_adapter(instance, &surface);
-        let (device, queue) = Self::create_device(&adapter);
+impl<'a> GpuContext<'a> {
+    pub fn new(window: &'a Window) -> Result<Self> {
+        let instance = Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
+        });
+
+        let surface = instance.create_surface(window)?;
+        let adapter = Self::create_adapter(&instance, &surface)?;
+        let (device, queue) = Self::create_device(&adapter)?;
         let surface_caps = surface.get_capabilities(&adapter);
-        let config = Self::create_surface_config(size, surface_caps);
+        let config = Self::create_surface_config(window.inner_size(), surface_caps);
+
         surface.configure(&device, &config);
 
-        Self {
-            surface,
+        Ok(Self {
             device,
             queue,
+            surface,
             config,
-            size,
-            window: window_arc,
-        }
+        })
     }
 
-    fn create_surface_config(
-        size: PhysicalSize<u32>,
-        capabilities: SurfaceCapabilities,
-    ) -> wgpu::SurfaceConfiguration {
-        let surface_format = capabilities
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(capabilities.formats[0]);
-
-        wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: size.width,
-            height: size.height,
-            present_mode: PresentMode::AutoNoVsync,
-            alpha_mode: capabilities.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        }
+    fn create_adapter(instance: &Instance, surface: &Surface) -> Result<Adapter> {
+        instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(surface),
+                force_fallback_adapter: false,
+            })
+            .block_on()
+            .ok_or_else(|| "Failed to create adapter".into())
     }
 
-    fn create_device(adapter: &Adapter) -> (Device, Queue) {
+    fn create_device(adapter: &Adapter) -> Result<(Device, Queue)> {
         adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -135,45 +67,60 @@ impl<'a> State<'a> {
                 None,
             )
             .block_on()
-            .unwrap()
+            .map_err(|e| e.into())
     }
 
-    fn create_adapter(instance: Instance, surface: &Surface) -> Adapter {
-        instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .block_on()
-            .unwrap()
+    fn create_surface_config(
+        size: PhysicalSize<u32>,
+        capabilities: SurfaceCapabilities,
+    ) -> wgpu::SurfaceConfiguration {
+        let format = capabilities
+            .formats
+            .iter()
+            .find(|f| f.is_srgb())
+            .copied()
+            .unwrap_or(capabilities.formats[0]);
+
+        wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::AutoNoVsync,
+            alpha_mode: capabilities.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        }
     }
 
-    fn create_gpu_instance() -> Instance {
-        Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
+    fn resize(&mut self, size: PhysicalSize<u32>) {
+        self.config.width = size.width;
+        self.config.height = size.height;
+        self.surface.configure(&self.device, &self.config);
+    }
+}
+
+// Renderer handles all drawing operations
+struct Renderer {
+    gpu: GpuContext<'static>,
+    _window: Arc<Window>, // Keep window alive as long as renderer exists
+}
+
+impl Renderer {
+    pub fn new(window: Arc<Window>) -> Result<Self> {
+        let gpu = unsafe { std::mem::transmute(GpuContext::new(&window)?) };
+        Ok(Self {
+            gpu,
+            _window: window,
         })
     }
 
-    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        self.size = new_size;
-
-        self.config.width = new_size.width;
-        self.config.height = new_size.height;
-
-        self.surface.configure(&self.device, &self.config);
-
-        info!("Resized to {:?} from state!", new_size);
-    }
-
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+    pub fn render(&mut self) -> Result<()> {
+        let output = self.gpu.surface.get_current_texture()?;
+        let view = output.texture.create_view(&Default::default());
 
         let mut encoder = self
+            .gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
@@ -201,10 +148,35 @@ impl<'a> State<'a> {
             });
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        self.gpu.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())
+    }
+
+    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
+        self.gpu.resize(new_size);
+    }
+}
+
+struct Engine {
+    window: Arc<Window>,
+    renderer: Renderer,
+}
+
+impl Engine {
+    pub fn new(window: Window) -> Result<Self> {
+        let window = Arc::new(window);
+        let renderer = Renderer::new(window.clone())?;
+        Ok(Self { window, renderer })
+    }
+
+    pub fn render(&mut self) -> Result<()> {
+        self.renderer.render()
+    }
+
+    pub fn resize(&mut self, size: PhysicalSize<u32>) {
+        self.renderer.resize(size);
     }
 
     pub fn window(&self) -> &Window {
@@ -212,9 +184,67 @@ impl<'a> State<'a> {
     }
 }
 
+// Application handling
+struct Application {
+    engine: Option<Engine>,
+}
+
+impl Application {
+    pub fn new() -> Self {
+        Self { engine: None }
+    }
+}
+
+impl ApplicationHandler for Application {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let window = event_loop
+            .create_window(
+                Window::default_attributes()
+                    .with_title("WGPU Engine")
+                    .with_inner_size(Size::Logical(LogicalSize::new(800.0, 600.0)))
+                    .with_min_inner_size(Size::Logical(LogicalSize::new(400.0, 300.0))),
+            )
+            .unwrap();
+
+        self.engine = Some(Engine::new(window).unwrap());
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        if let Some(engine) = &mut self.engine {
+            if engine.window().id() == window_id {
+                match event {
+                    WindowEvent::CloseRequested => event_loop.exit(),
+                    WindowEvent::Resized(size) => engine.resize(size),
+                    WindowEvent::RedrawRequested => {
+                        let _ = engine.render();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(engine) = &self.engine {
+            engine.window().request_redraw();
+        }
+    }
+}
+
+pub async fn run() -> Result<()> {
+    let event_loop = EventLoop::new()?;
+    let mut app = Application::new();
+    event_loop.run_app(&mut app)?;
+    Ok(())
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
     better_panic::install();
-
-    pollster::block_on(run());
+    pollster::block_on(run()).unwrap();
 }
