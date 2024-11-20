@@ -1,6 +1,6 @@
+use anyhow::Result;
 use pollster::FutureExt;
 use std::sync::Arc;
-use tracing::info;
 use wgpu::{Adapter, Device, Instance, Queue, Surface, SurfaceCapabilities};
 use winit::{
     application::ApplicationHandler,
@@ -9,9 +9,6 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowId},
 };
-
-// Common result type
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 // GPU Context handling
 struct GpuContext<'a> {
@@ -52,7 +49,7 @@ impl<'a> GpuContext<'a> {
                 force_fallback_adapter: false,
             })
             .block_on()
-            .ok_or_else(|| "Failed to create adapter".into())
+            .ok_or_else(|| anyhow::anyhow!("No adapter found"))
     }
 
     fn create_device(adapter: &Adapter) -> Result<(Device, Queue)> {
@@ -243,8 +240,9 @@ pub async fn run() -> Result<()> {
     Ok(())
 }
 
-fn main() {
+fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     better_panic::install();
-    pollster::block_on(run()).unwrap();
+    pollster::block_on(run())?;
+    Ok(())
 }
