@@ -1,6 +1,8 @@
 use anyhow::Result;
 use pollster::FutureExt;
 use std::sync::Arc;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 use vertex::{Vertex, VERTICES};
 use wgpu::{
     util::DeviceExt, Adapter, Device, Instance, Queue, RenderPipeline, Surface, SurfaceCapabilities,
@@ -76,22 +78,64 @@ impl<'a> GpuContext<'a> {
         size: PhysicalSize<u32>,
         capabilities: SurfaceCapabilities,
     ) -> wgpu::SurfaceConfiguration {
-        let format = capabilities
-            .formats
+        let formats = capabilities.formats.iter().map(|f| *f).collect::<Vec<_>>();
+        let supports_hdr = formats.iter().any(|format| {
+            matches!(
+                format,
+                wgpu::TextureFormat::Bgra8UnormSrgb
+                    | wgpu::TextureFormat::Rgba16Float
+                    | wgpu::TextureFormat::Rgba32Float // Add other HDR formats as needed
+            )
+        });
+        info!("Surface supports HDR: {}", supports_hdr);
+        // List all formats supported by the surface
+        info!("Supported surface formats: {:#?}", formats);
+        let format = formats
             .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(capabilities.formats[0]);
+            .cloned()
+            .max_by(|a, b| {
+                let a_score = GpuContext::format_score(*a);
+                let b_score = GpuContext::format_score(*b);
+                a_score.cmp(&b_score)
+            })
+            .unwrap_or(formats[0].clone());
+        info!("Using surface format: {:?}", format);
 
         wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::AutoNoVsync,
+            present_mode: capabilities
+                .present_modes
+                .iter()
+                .cloned()
+                .max_by(|a, b| Self::present_mode_score(*a).cmp(&Self::present_mode_score(*b)))
+                .unwrap_or(wgpu::PresentMode::AutoNoVsync),
             alpha_mode: capabilities.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
+        }
+    }
+
+    fn format_score(format: wgpu::TextureFormat) -> u32 {
+        match format {
+            // Assign higher scores to preferred formats
+            wgpu::TextureFormat::Rgba16Float => 9,
+            wgpu::TextureFormat::Rgba32Float => 8,
+            wgpu::TextureFormat::Bgra8UnormSrgb => 7,
+            wgpu::TextureFormat::Rgba8UnormSrgb => 6,
+            _ => 0, // Default score for other formats
+        }
+    }
+
+    fn present_mode_score(present_mode: wgpu::PresentMode) -> u32 {
+        match present_mode {
+            // Assign higher scores to preferred present modes
+            wgpu::PresentMode::Fifo => 10,
+            wgpu::PresentMode::Mailbox => 9,
+            wgpu::PresentMode::Immediate => 8,
+            _ => 0, // Default score for other present modes
         }
     }
 
@@ -325,7 +369,14 @@ pub async fn run() -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    let env_filter = EnvFilter::from_default_env()
+        .add_directive("wgpu=warn".parse().unwrap())
+        .add_directive("winit=warn".parse().unwrap())
+        .add_directive("naga=warn".parse().unwrap())
+        .add_directive("debug".parse().unwrap());
+
+    // Initialize the subscriber with the filter
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
     better_panic::install();
     pollster::block_on(run())?;
     Ok(())
