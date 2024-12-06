@@ -4,6 +4,7 @@ members = [
     "1-triangle",
     "2-triangle-buffer",
     "3-triangle-texture",
+    "4-depth-texture",
 ]
 resolver = "2"
 
