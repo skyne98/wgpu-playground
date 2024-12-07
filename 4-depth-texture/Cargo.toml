@@ -13,3 +13,4 @@ better-panic = { workspace = true }
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
 image = { workspace = true }
+tokio = { workspace = true }

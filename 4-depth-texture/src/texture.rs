@@ -1,5 +1,32 @@
 use anyhow::*;
 use image::GenericImageView;
+use wgpu::util::DeviceExt;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ResizeOption {
+    Resize,
+    Fit,
+    NoCopy,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FitMethod {
+    Contain,
+    Cover,
+}
+
+#[derive(Debug, Clone)]
+pub enum Alignment {
+    Center,
+    TopCenter,
+    BottomCenter,
+    LeftCenter,
+    RightCenter,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
 
 pub struct Texture {
     #[allow(unused)]
