@@ -79,8 +79,8 @@ impl<'a> GPUPipelineBuilder<'a> {
         self.primitive_state = Some(state);
         self
     }
-    pub fn depth_stencil_state(mut self, state: wgpu::DepthStencilState) -> Self {
-        self.depth_stencil_state = Some(state);
+    pub fn depth_stencil_state(mut self, state: Option<wgpu::DepthStencilState>) -> Self {
+        self.depth_stencil_state = state;
         self
     }
     pub fn multisample_state(mut self, state: wgpu::MultisampleState) -> Self {
@@ -106,6 +106,16 @@ impl<'a> GPUPipelineBuilder<'a> {
             format: wgpu::TextureFormat::Depth32Float,
             depth_write_enabled: true,
             depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        });
+        self
+    }
+    pub fn depth_stencil_disabled(mut self) -> Self {
+        self.depth_stencil_state = Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth32Float,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::Always,
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         });

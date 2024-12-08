@@ -1,9 +1,10 @@
 use anyhow::Result;
+use pipeline::{GPUPipeline, GPUPipelineBuilder};
 use pollster::FutureExt;
 use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
-use vertex::{Vertex, VERTICES};
+use vertex::{Vertex, DEPTH_VERTICES, VERTICES};
 use wgpu::{
     util::DeviceExt, Adapter, Device, Instance, Queue, RenderPipeline, Surface, SurfaceCapabilities,
 };
@@ -25,6 +26,8 @@ struct GpuContext<'a> {
     queue: Queue,
     surface: Surface<'a>,
     depth: wgpu::Texture,
+    depth_view: wgpu::TextureView,
+    depth_sampler: wgpu::Sampler,
     config: wgpu::SurfaceConfiguration,
 }
 
@@ -54,8 +57,19 @@ impl<'a> GpuContext<'a> {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
+        });
+        let depth_view = depth.create_view(&Default::default());
+        let depth_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Depth Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
         });
 
         Ok(Self {
@@ -63,6 +77,8 @@ impl<'a> GpuContext<'a> {
             queue,
             surface,
             depth,
+            depth_view,
+            depth_sampler,
             config,
         })
     }
@@ -175,7 +191,7 @@ impl<'a> GpuContext<'a> {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
     }
@@ -191,6 +207,13 @@ struct Renderer {
     diffuse_layout: wgpu::BindGroupLayout,
     diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
+
+    // ================== DRAWING DEPTH ==================
+    depth_pipeline: GPUPipeline,
+    depth_layout: wgpu::BindGroupLayout,
+    depth_bind_group: wgpu::BindGroup,
+    depth_vertices: wgpu::Buffer,
+    depth_num_vertices: u32,
 }
 
 impl Renderer {
@@ -316,6 +339,72 @@ impl Renderer {
 
         let num_vertices = VERTICES.len() as u32;
 
+        // ================== DRAWING DEPTH ==================
+        let depth_layout = gpu
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Depth,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        // This should match the filterable field of the
+                        // corresponding Texture entry above.
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("depth_bind_group_layout"),
+            });
+        let depth_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &depth_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&gpu.depth_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&gpu.depth_sampler),
+                },
+            ],
+            label: Some("depth_bind_group"),
+        });
+        let depth_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Depth Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/depth.wgsl").into()),
+            });
+        let depth_pipeline = GPUPipelineBuilder::new(&gpu.device)
+            .label("Depth Pipeline")
+            .vertex_shader(&depth_shader, "vs_main")
+            .fragment_shader(&depth_shader, "fs_main")
+            .default_color_target(gpu.config.format)
+            .depth_stencil_state(None)
+            .default_multisample_state()
+            .default_primitive_state()
+            .build()
+            .expect("Failed to create depth pipeline");
+
+        let depth_vertices = gpu
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Depth Vertex Buffer"),
+                contents: bytemuck::cast_slice(DEPTH_VERTICES),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let depth_num_vertices = DEPTH_VERTICES.len() as u32;
+
         Ok(Self {
             _window: window,
             gpu,
@@ -325,6 +414,13 @@ impl Renderer {
             diffuse_layout: diffuse_bind_group_layout,
             diffuse_bind_group,
             diffuse_texture,
+
+            // ================== DRAWING DEPTH ==================
+            depth_pipeline,
+            depth_layout,
+            depth_bind_group,
+            depth_vertices,
+            depth_num_vertices,
         })
     }
 
@@ -371,6 +467,34 @@ impl Renderer {
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.draw(0..self.num_vertices, 0..1);
+        }
+
+        // DRAWING DEPTH
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Depth Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            render_pass.set_pipeline(&self.depth_pipeline.render_pipeline);
+            render_pass.set_bind_group(0, &self.depth_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.depth_vertices.slice(..));
+            render_pass.draw(0..self.depth_num_vertices, 0..1);
         }
 
         self.gpu.queue.submit(std::iter::once(encoder.finish()));
