@@ -5,6 +5,7 @@ members = [
     "2-triangle-buffer",
     "3-triangle-texture",
     "4-depth-texture",
+    "5-resources-ecs",
 ]
 resolver = "2"
 
@@ -21,6 +22,7 @@ bytemuck = { version = "1.20.0", features = ["derive"] }
 tokio = { version = "1.42.0", features = ["full"] }
 generational-cache = "0.2.2"
 tracing-tracy = "0.11.3"
+bevy_ecs = "0.15.0"
 
 [workspace.dependencies.image]
 version = "0.25.5"
