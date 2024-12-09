@@ -218,6 +218,8 @@ struct Renderer {
     depth_num_vertices: u32,
     uniforms: uniform::Uniforms,
     uniforms_buffer: wgpu::Buffer,
+
+    overall_time: f32,
 }
 
 impl Renderer {
@@ -338,7 +340,7 @@ impl Renderer {
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
                 contents: bytemuck::cast_slice(VERTICES),
-                usage: wgpu::BufferUsages::VERTEX,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             });
 
         let num_vertices = VERTICES.len() as u32;
@@ -452,12 +454,20 @@ impl Renderer {
 
             uniforms,
             uniforms_buffer,
+
+            overall_time: 0.0,
         })
     }
 
-    pub fn render(&mut self) -> Result<()> {
+    pub fn render(&mut self, delta: f32) -> Result<()> {
         let output = self.gpu.surface.get_current_texture()?;
         let view = output.texture.create_view(&Default::default());
+
+        // Update the vertex buffer with new data
+        let new_vertices = vertex::rotated_vertices(self.overall_time);
+        self.gpu
+            .queue
+            .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&new_vertices));
 
         let mut encoder = self
             .gpu
@@ -531,6 +541,8 @@ impl Renderer {
         self.gpu.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
+        self.overall_time += delta;
+
         Ok(())
     }
 
@@ -573,17 +585,26 @@ impl Renderer {
 struct Engine {
     window: Arc<Window>,
     renderer: Renderer,
+    last_time: std::time::Instant,
 }
 
 impl Engine {
     pub fn new(window: Window) -> Result<Self> {
         let window = Arc::new(window);
         let renderer = Renderer::new(window.clone())?;
-        Ok(Self { window, renderer })
+        Ok(Self {
+            window,
+            renderer,
+            last_time: std::time::Instant::now(),
+        })
     }
 
     pub fn render(&mut self) -> Result<()> {
-        self.renderer.render()
+        let now = std::time::Instant::now();
+        let delta = now.duration_since(self.last_time).as_secs_f32();
+        self.last_time = now;
+        self.renderer.render(delta)?;
+        Ok(())
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {

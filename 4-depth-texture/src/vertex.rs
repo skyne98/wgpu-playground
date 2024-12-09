@@ -39,6 +39,41 @@ pub const VERTICES: &[Vertex] = &[
     },
 ];
 
+pub fn rotated_vertices(time: f32) -> [Vertex; 3] {
+    let rotation = glam::Mat4::from_rotation_y(time * std::f32::consts::PI);
+    let vertices = VERTICES
+        .iter()
+        .map(|v| glam::Vec3::new(v.position[0], v.position[1], v.position[2]))
+        .collect::<Vec<_>>();
+
+    let rotated = [vertices[0], vertices[1], vertices[2]].map(|v| {
+        let transformed = rotation.transform_vector3(v);
+        Vertex {
+            position: [transformed.x, transformed.y, transformed.z],
+            color: [1.0, 0.0, 0.0],
+            tex_coords: [0.0, 0.0],
+        }
+    });
+
+    [
+        Vertex {
+            color: VERTICES[0].color,
+            tex_coords: VERTICES[0].tex_coords,
+            ..rotated[0]
+        },
+        Vertex {
+            color: VERTICES[1].color,
+            tex_coords: VERTICES[1].tex_coords,
+            ..rotated[1]
+        },
+        Vertex {
+            color: VERTICES[2].color,
+            tex_coords: VERTICES[2].tex_coords,
+            ..rotated[2]
+        },
+    ]
+}
+
 // Depth
 pub const DEPTH_VERTICES: &[DepthVertex] = &[
     // FILL THE WHOLE SCREEN
