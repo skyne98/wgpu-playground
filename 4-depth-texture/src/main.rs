@@ -3,7 +3,8 @@ use pipeline::{GPUPipeline, GPUPipelineBuilder};
 use pollster::FutureExt;
 use std::sync::Arc;
 use tracing::info;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{layer::SubscriberExt, EnvFilter};
+use tracing_tracy::client::{frame_name, ProfiledAllocator};
 use vertex::{DepthVertex, Vertex, DEPTH_VERTICES, VERTICES};
 use wgpu::{
     util::DeviceExt, Adapter, Device, Instance, Queue, RenderPipeline, Surface, SurfaceCapabilities,
@@ -15,6 +16,10 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowId},
 };
+
+#[global_allocator]
+static GLOBAL: ProfiledAllocator<std::alloc::System> =
+    ProfiledAllocator::new(std::alloc::System, 100);
 
 mod pipeline;
 mod texture;
@@ -167,11 +172,12 @@ impl<'a> GpuContext<'a> {
 
     fn present_mode_score(present_mode: wgpu::PresentMode) -> u32 {
         match present_mode {
-            // Assign higher scores to preferred present modes
-            wgpu::PresentMode::Fifo => 10,
-            wgpu::PresentMode::Mailbox => 9,
+            wgpu::PresentMode::AutoVsync => 11,
+            wgpu::PresentMode::Mailbox => 10,
+            wgpu::PresentMode::Fifo => 9,
             wgpu::PresentMode::Immediate => 8,
-            _ => 0, // Default score for other present modes
+            wgpu::PresentMode::AutoNoVsync => 7,
+            _ => 0,
         }
     }
 
@@ -460,6 +466,10 @@ impl Renderer {
     }
 
     pub fn render(&mut self, delta: f32) -> Result<()> {
+        let _render_guard = tracing_tracy::client::Client::running()
+            .expect("client must be running")
+            .non_continuous_frame(frame_name!("rendering"));
+
         let output = self.gpu.surface.get_current_texture()?;
         let view = output.texture.create_view(&Default::default());
 
@@ -539,7 +549,13 @@ impl Renderer {
         }
 
         self.gpu.queue.submit(std::iter::once(encoder.finish()));
+        drop(_render_guard);
+
+        let _present_guard = tracing_tracy::client::Client::running()
+            .expect("client must be running")
+            .non_continuous_frame(frame_name!("presenting"));
         output.present();
+        drop(_present_guard);
 
         self.overall_time += delta;
 
@@ -586,6 +602,7 @@ struct Engine {
     window: Arc<Window>,
     renderer: Renderer,
     last_time: std::time::Instant,
+    frame_time_history: Vec<f32>,
 }
 
 impl Engine {
@@ -596,6 +613,7 @@ impl Engine {
             window,
             renderer,
             last_time: std::time::Instant::now(),
+            frame_time_history: Vec::new(),
         })
     }
 
@@ -603,6 +621,38 @@ impl Engine {
         let now = std::time::Instant::now();
         let delta = now.duration_since(self.last_time).as_secs_f32();
         self.last_time = now;
+
+        // Calculate the average frame time
+        self.frame_time_history.push(delta);
+        if self.frame_time_history.len() > 2000 {
+            self.frame_time_history.remove(0);
+        }
+        let average_frame_time: f32 =
+            self.frame_time_history.iter().sum::<f32>() / self.frame_time_history.len() as f32;
+        let percentile_95 = self
+            .frame_time_history
+            .iter()
+            .fold((0.0, 0), |(acc, count), &time| (acc + time, count + 1))
+            .0
+            / self.frame_time_history.len() as f32;
+        let percentile_99 = self
+            .frame_time_history
+            .iter()
+            .fold((0.0, 0), |(acc, count), &time| (acc + time, count + 1))
+            .0
+            / self.frame_time_history.len() as f32;
+        self.window.set_title(&format!(
+            "Frame time: {:.2}ms (95th: {:.2}ms, 99th: {:.2}ms)",
+            average_frame_time * 1000.0,
+            percentile_95 * 1000.0,
+            percentile_99 * 1000.0
+        ));
+
+        // Tracy
+        tracing_tracy::client::Client::running()
+            .expect("client must be running")
+            .frame_mark();
+
         self.renderer.render(delta)?;
         Ok(())
     }
@@ -683,7 +733,12 @@ fn main() -> Result<()> {
         .add_directive("debug".parse().unwrap());
 
     // Initialize the subscriber with the filter
-    tracing_subscriber::fmt().with_env_filter(env_filter).init();
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::registry()
+            .with(tracing_tracy::TracyLayer::default())
+            .with(env_filter),
+    )
+    .expect("setup tracy layer");
     better_panic::install();
     pollster::block_on(run())?;
     Ok(())
