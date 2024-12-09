@@ -41,13 +41,18 @@ pub const VERTICES: &[Vertex] = &[
 
 pub fn rotated_vertices(time: f32) -> [Vertex; 3] {
     let rotation = glam::Mat4::from_rotation_y(time * std::f32::consts::PI);
+    // Create orthographic projection matrix
+    let ortho = glam::Mat4::orthographic_rh(-1.0, 1.0, -1.0, 1.0, -1.5, 1.5);
+
     let vertices = VERTICES
         .iter()
         .map(|v| glam::Vec3::new(v.position[0], v.position[1], v.position[2]))
         .collect::<Vec<_>>();
 
     let rotated = [vertices[0], vertices[1], vertices[2]].map(|v| {
-        let transformed = rotation.transform_vector3(v);
+        // Apply rotation then projection
+        let rotated = rotation.transform_vector3(v);
+        let transformed = ortho.project_point3(rotated);
         Vertex {
             position: [transformed.x, transformed.y, transformed.z],
             color: [1.0, 0.0, 0.0],
