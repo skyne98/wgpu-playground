@@ -4,7 +4,7 @@ use pollster::FutureExt;
 use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
-use vertex::{Vertex, DEPTH_VERTICES, VERTICES};
+use vertex::{DepthVertex, Vertex, DEPTH_VERTICES, VERTICES};
 use wgpu::{
     util::DeviceExt, Adapter, Device, Instance, Queue, RenderPipeline, Surface, SurfaceCapabilities,
 };
@@ -18,6 +18,7 @@ use winit::{
 
 mod pipeline;
 mod texture;
+mod uniform;
 mod vertex;
 
 // GPU Context handling
@@ -194,6 +195,7 @@ impl<'a> GpuContext<'a> {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
+        self.depth_view = self.depth.create_view(&Default::default());
     }
 }
 
@@ -214,6 +216,8 @@ struct Renderer {
     depth_bind_group: wgpu::BindGroup,
     depth_vertices: wgpu::Buffer,
     depth_num_vertices: u32,
+    uniforms: uniform::Uniforms,
+    uniforms_buffer: wgpu::Buffer,
 }
 
 impl Renderer {
@@ -362,8 +366,26 @@ impl Renderer {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
                 label: Some("depth_bind_group_layout"),
+            });
+        let uniforms = uniform::Uniforms::new([gpu.config.width as f32, gpu.config.height as f32]);
+        let uniforms_buffer = gpu
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Uniforms Buffer"),
+                contents: bytemuck::cast_slice(&[uniforms]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
         let depth_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &depth_layout,
@@ -376,6 +398,10 @@ impl Renderer {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&gpu.depth_sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: uniforms.as_entire_binding(&uniforms_buffer),
+                },
             ],
             label: Some("depth_bind_group"),
         });
@@ -387,7 +413,9 @@ impl Renderer {
             });
         let depth_pipeline = GPUPipelineBuilder::new(&gpu.device)
             .label("Depth Pipeline")
+            .bind_group_layout(&depth_layout)
             .vertex_shader(&depth_shader, "vs_main")
+            .vertex_buffer_layout(DepthVertex::desc())
             .fragment_shader(&depth_shader, "fs_main")
             .default_color_target(gpu.config.format)
             .depth_stencil_state(None)
@@ -421,6 +449,9 @@ impl Renderer {
             depth_bind_group,
             depth_vertices,
             depth_num_vertices,
+
+            uniforms,
+            uniforms_buffer,
         })
     }
 
@@ -452,7 +483,7 @@ impl Renderer {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.gpu.depth.create_view(&Default::default()),
+                    view: &self.gpu.depth_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -505,6 +536,37 @@ impl Renderer {
 
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
         self.gpu.resize(new_size);
+
+        // Recreate all resources related to the depth texture
+        self.depth_bind_group = self
+            .gpu
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.depth_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.gpu.depth_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.gpu.depth_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.uniforms.as_entire_binding(&self.uniforms_buffer),
+                    },
+                ],
+                label: Some("depth_bind_group"),
+            });
+
+        // Put new data into the resolution buffer
+        self.uniforms.resolution = [new_size.width as f32, new_size.height as f32];
+        self.gpu.queue.write_buffer(
+            &self.uniforms_buffer,
+            0,
+            bytemuck::cast_slice(&[self.uniforms]),
+        );
     }
 }
 
