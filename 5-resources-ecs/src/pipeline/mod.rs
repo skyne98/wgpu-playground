@@ -2,6 +2,10 @@ use std::num::NonZero;
 
 use wgpu::PrimitiveState;
 
+pub mod depth;
+pub mod diffuse;
+pub mod render;
+
 pub struct GPUPipeline {
     pub render_pipeline: wgpu::RenderPipeline,
     pub render_pipeline_layout: wgpu::PipelineLayout,

@@ -2,32 +2,6 @@ use anyhow::*;
 use image::GenericImageView;
 use wgpu::util::DeviceExt;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ResizeOption {
-    Resize,
-    Fit,
-    NoCopy,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum FitMethod {
-    Contain,
-    Cover,
-}
-
-#[derive(Debug, Clone)]
-pub enum Alignment {
-    Center,
-    TopCenter,
-    BottomCenter,
-    LeftCenter,
-    RightCenter,
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-}
-
 pub struct Texture {
     #[allow(unused)]
     pub texture: wgpu::Texture,
@@ -103,5 +77,41 @@ impl Texture {
             view,
             sampler,
         })
+    }
+
+    pub fn depth_texture(device: &wgpu::Device, width: u32, height: u32) -> Self {
+        let size = wgpu::Extent3d {
+            width: width,
+            height: height,
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("depth_texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let view = texture.create_view(&Default::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("depth_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+        }
     }
 }

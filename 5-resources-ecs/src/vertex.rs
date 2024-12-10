@@ -1,3 +1,71 @@
+use anyhow::Result;
+use bevy_ecs::{
+    schedule::Schedule,
+    system::{Res, ResMut, Resource},
+    world::World,
+};
+use wgpu::util::DeviceExt;
+
+use crate::{gpu::GpuContext, time::TimeContext};
+
+pub fn setup_vertex_buffers(world: &mut World, schedule: &mut Schedule) -> Result<()> {
+    let gpu = world
+        .get_resource::<GpuContext>()
+        .ok_or_else(|| anyhow::anyhow!("Gpu resource not found"))?;
+
+    let vertex_buffer = gpu
+        .device
+        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+    let num_vertices = VERTICES.len() as u32;
+
+    let depth_vertex_buffer = gpu
+        .device
+        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Depth Vertex Buffer"),
+            contents: bytemuck::cast_slice(DEPTH_VERTICES),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+    let num_depth_vertices = DEPTH_VERTICES.len() as u32;
+
+    world.insert_resource(VertexBuffers {
+        vertex_buffer,
+        depth_vertex_buffer,
+        num_vertices,
+        num_depth_vertices,
+    });
+
+    schedule.add_systems(rotate_vertices_system);
+
+    Ok(())
+}
+
+pub fn rotate_vertices_system(
+    gpu: Res<GpuContext>,
+    time: Res<TimeContext>,
+    vertex_buffers: ResMut<VertexBuffers>,
+) {
+    // Update the vertex buffer with new data
+    let new_vertices = rotated_vertices(time.total);
+    gpu.queue.write_buffer(
+        &vertex_buffers.vertex_buffer,
+        0,
+        bytemuck::cast_slice(&new_vertices),
+    );
+}
+
+#[derive(Resource)]
+pub struct VertexBuffers {
+    pub vertex_buffer: wgpu::Buffer,
+    pub depth_vertex_buffer: wgpu::Buffer,
+    pub num_vertices: u32,
+    pub num_depth_vertices: u32,
+}
+
+// =================================== VERTEX ===================================
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
@@ -79,7 +147,7 @@ pub fn rotated_vertices(time: f32) -> [Vertex; 3] {
     ]
 }
 
-// Depth
+// ========================== DEPTH VERTEX ==========================
 pub const DEPTH_VERTICES: &[DepthVertex] = &[
     // FILL THE WHOLE SCREEN
     DepthVertex {
