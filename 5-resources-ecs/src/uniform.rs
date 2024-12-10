@@ -16,13 +16,6 @@ pub fn setup_uniforms(world: &mut World, schedule: &mut Schedule) -> Result<()> 
     let uniforms = Uniforms::new(gpu);
     world.insert_resource(uniforms);
 
-    world.add_observer(
-        |trigger: Trigger<ResizeEvent>, gpu: Res<GpuContext>, mut uniforms: ResMut<Uniforms>| {
-            let new_size = trigger.event().size;
-            uniforms.update(&gpu, [new_size.width as f32, new_size.height as f32]);
-        },
-    );
-
     Ok(())
 }
 

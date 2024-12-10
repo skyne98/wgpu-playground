@@ -1,5 +1,12 @@
 use anyhow::Result;
+use bevy_ecs::event::Event;
+use bevy_ecs::event::EventReader;
+use bevy_ecs::observer::Trigger;
+use bevy_ecs::schedule::Schedule;
+use bevy_ecs::system::Commands;
+use bevy_ecs::system::ResMut;
 use bevy_ecs::system::Resource;
+use bevy_ecs::world::World;
 use pollster::FutureExt;
 use tracing::info;
 use wgpu::Adapter;
@@ -10,6 +17,8 @@ use wgpu::Surface;
 use wgpu::SurfaceCapabilities;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
+
+use crate::ResizeEvent;
 
 // GPU Context handling
 #[derive(Resource)]
@@ -139,14 +148,14 @@ impl GpuContext {
         }
     }
 
-    pub fn resize(&mut self, size: PhysicalSize<u32>) {
+    pub fn resize(&mut self, size: &PhysicalSize<u32>) {
         self.config.width = size.width;
         self.config.height = size.height;
         self.surface.configure(&self.device, &self.config);
     }
 }
 
-pub fn setup_gpu(world: &mut bevy_ecs::world::World, window: Window) -> Result<()> {
+pub fn setup_gpu(world: &mut World, schedule: &mut Schedule, window: Window) -> Result<()> {
     let gpu = GpuContext::new(window)?;
     world.insert_resource(gpu);
     Ok(())

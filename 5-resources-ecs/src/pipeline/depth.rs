@@ -1,11 +1,19 @@
 use anyhow::Result;
-use bevy_ecs::{schedule::Schedule, system::Resource, world::World};
+use bevy_ecs::{
+    observer::Trigger,
+    prelude::resource_changed,
+    schedule::{IntoSystemConfigs, Schedule},
+    system::{Res, ResMut, Resource},
+    world::World,
+};
+use tracing::info;
 
 use crate::{
+    gpu,
     texture::Texture,
     uniform::{Uniforms, UniformsData},
     vertex::DepthVertex,
-    GpuContext,
+    GpuContext, ResizeEvent,
 };
 
 use super::{GPUPipeline, GPUPipelineBuilder};
@@ -20,20 +28,37 @@ pub fn setup_depth(world: &mut World, schedule: &mut Schedule) -> Result<()> {
 
     let depth_texture = DepthTexture::new(&gpu, gpu.config.width, gpu.config.height)?;
 
-    let diffuse_bind_group_layout = DepthBindGroupLayout::new(&gpu)?;
-    let diffuse_bind_group = DepthBindGroup::new(
+    let depth_bind_group_layout = DepthBindGroupLayout::new(&gpu)?;
+    let depth_bind_group = DepthBindGroup::new(
         &gpu,
         &depth_texture,
-        &diffuse_bind_group_layout,
+        &depth_bind_group_layout,
         &uniforms.buffer,
     )?;
-    let diffuse_pipeline = DepthPipeline::new(&gpu, &diffuse_bind_group_layout)?;
-    world.insert_resource(diffuse_bind_group_layout);
-    world.insert_resource(diffuse_bind_group);
+    let depth_pipeline = DepthPipeline::new(&gpu, &depth_bind_group_layout)?;
+    world.insert_resource(depth_bind_group_layout);
+    world.insert_resource(depth_bind_group);
     world.insert_resource(depth_texture);
-    world.insert_resource(diffuse_pipeline);
+    world.insert_resource(depth_pipeline);
+
+    schedule.add_systems(depth_changed_system.run_if(resource_changed::<DepthTexture>));
 
     Ok(())
+}
+
+pub fn depth_changed_system(
+    mut depth_bind_group: ResMut<DepthBindGroup>,
+    gpu: Res<GpuContext>,
+    depth_bind_group_layout: Res<DepthBindGroupLayout>,
+    depth_texture: Res<DepthTexture>,
+    uniforms: Res<Uniforms>,
+) {
+    depth_bind_group.recreate(
+        &gpu.device,
+        &depth_bind_group_layout,
+        &depth_texture,
+        &uniforms.buffer,
+    );
 }
 
 // =============================== BIND GROUP ===============================
@@ -119,11 +144,38 @@ impl DepthBindGroup {
             bind_group: depth_bind_group,
         })
     }
+    pub fn recreate(
+        &mut self,
+        device: &wgpu::Device,
+        layout: &DepthBindGroupLayout,
+        texture: &DepthTexture,
+        uniforms_buffer: &wgpu::Buffer,
+    ) {
+        self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &layout.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture.texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&texture.texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: UniformsData::as_entire_binding(&uniforms_buffer),
+                },
+            ],
+            label: Some("depth_bind_group"),
+        });
+    }
 }
 
 // =============================== PIPELINE ===============================
 #[derive(Resource)]
 pub struct DepthPipeline {
+    pub shader: wgpu::ShaderModule,
     pub pipeline: GPUPipeline,
 }
 impl DepthPipeline {
@@ -147,9 +199,12 @@ impl DepthPipeline {
             .build()
             .map_err(|e| anyhow::anyhow!(e))?;
 
-        Ok(Self {
+        let result = Self {
+            shader: depth_shader,
             pipeline: depth_pipeline,
-        })
+        };
+
+        Ok(result)
     }
 }
 
@@ -162,5 +217,8 @@ impl DepthTexture {
     pub fn new(gpu: &GpuContext, width: u32, height: u32) -> Result<Self> {
         let texture = Texture::depth_texture(&gpu.device, width, height);
         Ok(Self { texture })
+    }
+    pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
+        self.texture = Texture::depth_texture(device, width, height);
     }
 }

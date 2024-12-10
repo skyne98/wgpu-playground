@@ -1,5 +1,11 @@
 use anyhow::Result;
-use bevy_ecs::{component::Component, schedule::Schedule, system::Resource, world::World};
+use bevy_ecs::{
+    component::Component,
+    prelude::resource_changed,
+    schedule::{IntoSystemConfigs, Schedule},
+    system::{Res, ResMut, Resource},
+    world::World,
+};
 
 use crate::{
     texture::{self, Texture},
@@ -7,7 +13,7 @@ use crate::{
     GpuContext,
 };
 
-use super::{GPUPipeline, GPUPipelineBuilder};
+use super::{depth::DepthTexture, GPUPipeline, GPUPipelineBuilder};
 
 pub fn setup_diffuse(world: &mut World, schedule: &mut Schedule) -> Result<()> {
     let gpu = world

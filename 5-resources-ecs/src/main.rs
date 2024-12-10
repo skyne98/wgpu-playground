@@ -1,9 +1,18 @@
 use anyhow::Result;
-use bevy_ecs::{event::Event, schedule::Schedule, system::Resource, world::World};
+use bevy_ecs::{
+    component::Component,
+    event::Event,
+    observer::{Observer, Trigger},
+    schedule::Schedule,
+    system::{ResMut, Resource},
+    world::World,
+};
 use gpu::{setup_gpu, GpuContext};
 use pipeline::{
-    depth::setup_depth, diffuse::setup_diffuse, render::setup_rendering, GPUPipeline,
-    GPUPipelineBuilder,
+    depth::{setup_depth, DepthTexture},
+    diffuse::setup_diffuse,
+    render::setup_rendering,
+    GPUPipeline, GPUPipelineBuilder,
 };
 use pollster::FutureExt;
 use std::sync::Arc;
@@ -11,7 +20,7 @@ use time::setup_time;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, EnvFilter};
 use tracing_tracy::client::{frame_name, ProfiledAllocator};
-use uniform::setup_uniforms;
+use uniform::{setup_uniforms, Uniforms};
 use vertex::{setup_vertex_buffers, DepthVertex, Vertex, DEPTH_VERTICES, VERTICES};
 use wgpu::{
     util::DeviceExt, Adapter, Device, Instance, Queue, RenderPipeline, Surface, SurfaceCapabilities,
@@ -67,7 +76,7 @@ impl ApplicationHandler for Application {
             .expect("Failed to create window");
 
         setup_time(&mut self.world, &mut self.schedule).expect("Failed to setup time");
-        setup_gpu(&mut self.world, window).expect("Failed to setup GPU");
+        setup_gpu(&mut self.world, &mut self.schedule, window).expect("Failed to setup GPU");
         setup_uniforms(&mut self.world, &mut self.schedule).expect("Failed to setup uniforms");
         setup_diffuse(&mut self.world, &mut self.schedule)
             .expect("Failed to setup diffuse pipeline");
@@ -75,6 +84,24 @@ impl ApplicationHandler for Application {
         setup_vertex_buffers(&mut self.world, &mut self.schedule)
             .expect("Failed to setup vertex buffers");
         setup_rendering(&mut self.world, &mut self.schedule).expect("Failed to setup rendering");
+
+        self.world.add_observer(
+            |event: Trigger<ResizeEvent>,
+             mut gpu: ResMut<GpuContext>,
+             mut depth_texture: ResMut<DepthTexture>,
+             mut uniforms: ResMut<Uniforms>| {
+                let size = event.size;
+                println!("Resizing to {:?}", size);
+                gpu.config.width = size.width;
+                gpu.config.height = size.height;
+                gpu.resize(&size);
+
+                depth_texture.resize(&gpu.device, size.width, size.height);
+
+                let resolution = [size.width as f32, size.height as f32];
+                uniforms.update(&gpu, resolution);
+            },
+        );
     }
 
     fn window_event(
@@ -94,7 +121,9 @@ impl ApplicationHandler for Application {
         if current_window_id == window_id {
             match event {
                 WindowEvent::CloseRequested => event_loop.exit(),
-                WindowEvent::Resized(size) => self.world.trigger(ResizeEvent { size }),
+                WindowEvent::Resized(size) => {
+                    self.world.trigger(ResizeEvent { size });
+                }
                 WindowEvent::RedrawRequested => {
                     self.schedule.run(&mut self.world);
                 }
