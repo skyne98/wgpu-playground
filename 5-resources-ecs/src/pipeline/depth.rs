@@ -27,9 +27,11 @@ pub fn setup_depth(world: &mut World, schedule: &mut Schedule) -> Result<()> {
         &diffuse_bind_group_layout,
         &uniforms.buffer,
     )?;
+    let diffuse_pipeline = DepthPipeline::new(&gpu, &diffuse_bind_group_layout)?;
     world.insert_resource(diffuse_bind_group_layout);
     world.insert_resource(diffuse_bind_group);
     world.insert_resource(depth_texture);
+    world.insert_resource(diffuse_pipeline);
 
     Ok(())
 }

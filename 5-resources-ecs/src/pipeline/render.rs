@@ -145,5 +145,9 @@ pub fn render_system_fallible(
     output.present();
     drop(_present_guard);
 
+    tracing_tracy::client::Client::running()
+        .expect("client must be running")
+        .frame_mark();
+
     Ok(())
 }

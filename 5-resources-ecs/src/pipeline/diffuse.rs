@@ -20,8 +20,11 @@ pub fn setup_diffuse(world: &mut World, schedule: &mut Schedule) -> Result<()> {
         texture::Texture::from_bytes(&gpu.device, &gpu.queue, diffuse_bytes, "diffuse_texture")?;
     let diffuse_bind_group =
         DiffuseBindGroup::new(&gpu, &diffuse_bind_group_layout, &diffuse_texture)?;
+    let diffuse_pipeline = DiffusePipeline::new(&gpu, &diffuse_bind_group_layout)?;
+
     world.insert_resource(diffuse_bind_group_layout);
     world.insert_resource(diffuse_bind_group);
+    world.insert_resource(diffuse_pipeline);
 
     Ok(())
 }
