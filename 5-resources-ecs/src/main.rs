@@ -1,7 +1,7 @@
 use anyhow::Result;
 use bevy_ecs::{
     component::Component,
-    event::Event,
+    event::{Event, EventReader, Events},
     observer::{Observer, Trigger},
     schedule::Schedule,
     system::{ResMut, Resource},
@@ -57,9 +57,31 @@ struct Application {
 
 impl Application {
     pub fn new() -> Self {
+        let world = World::default();
+
         Self {
-            world: World::new(),
+            world,
             schedule: Schedule::default(),
+        }
+    }
+
+    fn handle_resize(
+        mut resize_events: EventReader<ResizeEvent>,
+        mut gpu: ResMut<GpuContext>,
+        mut depth_texture: ResMut<DepthTexture>,
+        mut uniforms: ResMut<Uniforms>,
+    ) {
+        for event in resize_events.read() {
+            let size = event.size;
+            info!("Resizing to {:?}", size);
+            gpu.config.width = size.width;
+            gpu.config.height = size.height;
+            gpu.resize(&size);
+
+            depth_texture.resize(&gpu.device, size.width, size.height);
+
+            let resolution = [size.width as f32, size.height as f32];
+            uniforms.update(&gpu, resolution);
         }
     }
 }
@@ -85,23 +107,8 @@ impl ApplicationHandler for Application {
             .expect("Failed to setup vertex buffers");
         setup_rendering(&mut self.world, &mut self.schedule).expect("Failed to setup rendering");
 
-        self.world.add_observer(
-            |event: Trigger<ResizeEvent>,
-             mut gpu: ResMut<GpuContext>,
-             mut depth_texture: ResMut<DepthTexture>,
-             mut uniforms: ResMut<Uniforms>| {
-                let size = event.size;
-                println!("Resizing to {:?}", size);
-                gpu.config.width = size.width;
-                gpu.config.height = size.height;
-                gpu.resize(&size);
-
-                depth_texture.resize(&gpu.device, size.width, size.height);
-
-                let resolution = [size.width as f32, size.height as f32];
-                uniforms.update(&gpu, resolution);
-            },
-        );
+        self.world.init_resource::<Events<ResizeEvent>>();
+        self.schedule.add_systems(Self::handle_resize);
     }
 
     fn window_event(
@@ -122,7 +129,9 @@ impl ApplicationHandler for Application {
             match event {
                 WindowEvent::CloseRequested => event_loop.exit(),
                 WindowEvent::Resized(size) => {
-                    self.world.trigger(ResizeEvent { size });
+                    if let Some(mut events) = self.world.get_resource_mut::<Events<ResizeEvent>>() {
+                        events.send(ResizeEvent { size });
+                    }
                 }
                 WindowEvent::RedrawRequested => {
                     self.schedule.run(&mut self.world);
