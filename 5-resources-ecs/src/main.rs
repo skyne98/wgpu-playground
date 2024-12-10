@@ -130,9 +130,10 @@ fn main() -> Result<()> {
     tracing::subscriber::set_global_default(
         tracing_subscriber::registry()
             .with(tracing_tracy::TracyLayer::default())
-            .with(env_filter),
+            .with(env_filter)
+            .with(tracing_subscriber::fmt::layer()),
     )
-    .expect("setup tracy layer");
+    .expect("setup tracing");
     better_panic::install();
 
     pollster::block_on(run())?;
