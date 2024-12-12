@@ -2,21 +2,23 @@ use anyhow::Result;
 use bevy_ecs::{
     component::Component,
     event::{Event, EventReader, Events},
-    observer::{Observer, Trigger},
+    observer::{Observer, Trigger, TriggerEvent},
     schedule::Schedule,
-    system::{ResMut, Resource},
+    system::{Res, ResMut, Resource, RunSystemOnce},
     world::World,
 };
+use debouncer::Debouncer;
 use gpu::{setup_gpu, GpuContext};
 use pipeline::{
     depth::{setup_depth, DepthTexture},
     diffuse::setup_diffuse,
+    present::{setup_frame_buffer, setup_present, FrameBuffer},
     render::setup_rendering,
     GPUPipeline, GPUPipelineBuilder,
 };
 use pollster::FutureExt;
-use std::sync::Arc;
-use time::setup_time;
+use std::{sync::Arc, time::Duration};
+use time::{setup_time, TimeContext};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, EnvFilter};
 use tracing_tracy::client::{frame_name, ProfiledAllocator};
@@ -37,6 +39,7 @@ use winit::{
 static GLOBAL: ProfiledAllocator<std::alloc::System> =
     ProfiledAllocator::new(std::alloc::System, 100);
 
+mod debouncer;
 mod gpu;
 mod pipeline;
 mod texture;
@@ -44,9 +47,22 @@ mod time;
 mod uniform;
 mod vertex;
 
+#[derive(Resource)]
+pub struct ResizeState {
+    pub debouncer: Debouncer<PhysicalSize<u32>>,
+}
+
+impl Default for ResizeState {
+    fn default() -> Self {
+        Self {
+            debouncer: Debouncer::new(Duration::from_millis(100)),
+        }
+    }
+}
+
 #[derive(Event)]
-struct ResizeEvent {
-    size: PhysicalSize<u32>,
+pub struct ResizeEvent {
+    pub size: PhysicalSize<u32>,
 }
 
 // Application handling
@@ -62,26 +78,6 @@ impl Application {
         Self {
             world,
             schedule: Schedule::default(),
-        }
-    }
-
-    fn handle_resize(
-        mut resize_events: EventReader<ResizeEvent>,
-        mut gpu: ResMut<GpuContext>,
-        mut depth_texture: ResMut<DepthTexture>,
-        mut uniforms: ResMut<Uniforms>,
-    ) {
-        for event in resize_events.read() {
-            let size = event.size;
-            info!("Resizing to {:?}", size);
-            gpu.config.width = size.width;
-            gpu.config.height = size.height;
-            gpu.resize(&size);
-
-            depth_texture.resize(&gpu.device, size.width, size.height);
-
-            let resolution = [size.width as f32, size.height as f32];
-            uniforms.update(&gpu, resolution);
         }
     }
 }
@@ -100,15 +96,40 @@ impl ApplicationHandler for Application {
         setup_time(&mut self.world, &mut self.schedule).expect("Failed to setup time");
         setup_gpu(&mut self.world, &mut self.schedule, window).expect("Failed to setup GPU");
         setup_uniforms(&mut self.world, &mut self.schedule).expect("Failed to setup uniforms");
+        setup_frame_buffer(&mut self.world, &mut self.schedule)
+            .expect("Failed to setup frame buffer");
         setup_diffuse(&mut self.world, &mut self.schedule)
             .expect("Failed to setup diffuse pipeline");
         setup_depth(&mut self.world, &mut self.schedule).expect("Failed to setup depth pipeline");
         setup_vertex_buffers(&mut self.world, &mut self.schedule)
             .expect("Failed to setup vertex buffers");
+        setup_present(&mut self.world, &mut self.schedule)
+            .expect("Failed to setup present pipeline");
         setup_rendering(&mut self.world, &mut self.schedule).expect("Failed to setup rendering");
 
-        self.world.init_resource::<Events<ResizeEvent>>();
-        self.schedule.add_systems(Self::handle_resize);
+        self.world.init_resource::<ResizeState>();
+        self.world.add_observer(
+            |trigger: Trigger<ResizeEvent>,
+             mut resize_state: ResMut<ResizeState>,
+             mut gpu: ResMut<GpuContext>,
+             mut depth_texture: ResMut<DepthTexture>,
+             mut uniforms: ResMut<Uniforms>,
+             mut frame_buffer: ResMut<FrameBuffer>,
+             time: Res<TimeContext>| {
+                resize_state.debouncer.tick(time.delta);
+                resize_state.debouncer.push(trigger.event().size);
+                if let Some(size) = resize_state.debouncer.get() {
+                    info!("Resize event: {:?}", size);
+                    gpu.resize(&size);
+                    frame_buffer
+                        .texture
+                        .resize(&gpu.device, &gpu.queue, size.width, size.height);
+                    depth_texture.resize(&gpu.device, size.width, size.height);
+                    let resolution = [size.width as f32, size.height as f32];
+                    uniforms.update_resolution(&gpu, resolution);
+                }
+            },
+        );
     }
 
     fn window_event(
@@ -129,9 +150,7 @@ impl ApplicationHandler for Application {
             match event {
                 WindowEvent::CloseRequested => event_loop.exit(),
                 WindowEvent::Resized(size) => {
-                    if let Some(mut events) = self.world.get_resource_mut::<Events<ResizeEvent>>() {
-                        events.send(ResizeEvent { size });
-                    }
+                    self.world.trigger(ResizeEvent { size });
                 }
                 WindowEvent::RedrawRequested => {
                     self.schedule.run(&mut self.world);

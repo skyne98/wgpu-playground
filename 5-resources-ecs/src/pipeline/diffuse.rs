@@ -13,7 +13,7 @@ use crate::{
     GpuContext,
 };
 
-use super::{depth::DepthTexture, GPUPipeline, GPUPipelineBuilder};
+use super::{present::FrameBuffer, GPUPipeline, GPUPipelineBuilder};
 
 pub fn setup_diffuse(world: &mut World, schedule: &mut Schedule) -> Result<()> {
     let gpu = world
@@ -124,7 +124,7 @@ impl DiffusePipeline {
             .vertex_shader(&shader, "vs_main")
             .fragment_shader(&shader, "fs_main")
             .vertex_buffer_layout(Vertex::desc())
-            .default_color_target(gpu.config.format)
+            .default_color_target(wgpu::TextureFormat::Rgba16Float)
             .default_depth_stencil_state()
             .default_multisample_state()
             .default_primitive_state()

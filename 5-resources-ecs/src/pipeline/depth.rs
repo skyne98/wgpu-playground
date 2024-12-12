@@ -6,17 +6,18 @@ use bevy_ecs::{
     system::{Res, ResMut, Resource},
     world::World,
 };
-use tracing::info;
 
 use crate::{
-    gpu,
     texture::Texture,
     uniform::{Uniforms, UniformsData},
     vertex::DepthVertex,
-    GpuContext, ResizeEvent,
+    GpuContext,
 };
 
-use super::{GPUPipeline, GPUPipelineBuilder};
+use super::{
+    present::{FrameBuffer, PresentBindGroup, PresentBindGroupLayout, PresentPipeline},
+    GPUPipeline, GPUPipelineBuilder,
+};
 
 pub fn setup_depth(world: &mut World, schedule: &mut Schedule) -> Result<()> {
     let gpu = world
@@ -192,7 +193,7 @@ impl DepthPipeline {
             .vertex_shader(&depth_shader, "vs_main")
             .fragment_shader(&depth_shader, "fs_main")
             .vertex_buffer_layout(DepthVertex::desc())
-            .default_color_target(gpu.config.format)
+            .default_color_target(wgpu::TextureFormat::Rgba16Float)
             .depth_stencil_state(None)
             .default_multisample_state()
             .default_primitive_state()

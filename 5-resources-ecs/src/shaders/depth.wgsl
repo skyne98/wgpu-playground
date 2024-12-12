@@ -19,7 +19,8 @@ fn vs_main(
 
 // Fragment shader
 struct Uniforms {
-    @align(8) resolution: vec2<f32>,
+    resolution: vec2<f32>,
+    srgb_surface: f32,
 }
 ;
 

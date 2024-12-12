@@ -18,8 +18,6 @@ use wgpu::SurfaceCapabilities;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-use crate::ResizeEvent;
-
 // GPU Context handling
 #[derive(Resource)]
 pub struct GpuContext {

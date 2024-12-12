@@ -4,6 +4,7 @@ use wgpu::PrimitiveState;
 
 pub mod depth;
 pub mod diffuse;
+pub mod present;
 pub mod render;
 
 pub struct GPUPipeline {
