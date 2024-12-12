@@ -20,11 +20,8 @@ use super::{
     present::{FrameBuffer, PresentBindGroup, PresentPipeline},
 };
 
-fn no_resize_block() -> impl Condition<()> {
-    IntoSystem::into_system(|resize: Res<ResizeState>| resize.debouncer.peek().is_none())
-}
 pub fn setup_rendering(_world: &mut World, schedule: &mut Schedule) -> Result<()> {
-    schedule.add_systems(render_system.run_if(no_resize_block()));
+    schedule.add_systems(render_system);
     Ok(())
 }
 
@@ -170,6 +167,6 @@ pub fn render_system(
     };
 
     if let Err(e) = f() {
-        error!("Error during rendering: {:?}", e);
+        // error!("Error during rendering: {:?}", e);
     }
 }

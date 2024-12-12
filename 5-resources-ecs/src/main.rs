@@ -65,6 +65,28 @@ pub struct ResizeEvent {
     pub size: PhysicalSize<u32>,
 }
 
+fn resize_system(
+    mut resize_state: ResMut<ResizeState>,
+    mut gpu: ResMut<GpuContext>,
+    mut depth_texture: ResMut<DepthTexture>,
+    mut uniforms: ResMut<Uniforms>,
+    mut frame_buffer: ResMut<FrameBuffer>,
+    time: Res<TimeContext>,
+) {
+    resize_state.debouncer.tick(time.delta);
+
+    if let Some(size) = resize_state.debouncer.get() {
+        info!("Resize event: {:?}", size);
+        gpu.resize(&size);
+        frame_buffer
+            .texture
+            .resize(&gpu.device, &gpu.queue, size.width, size.height);
+        depth_texture.resize(&gpu.device, size.width, size.height);
+        let resolution = [size.width as f32, size.height as f32];
+        uniforms.update_resolution(&gpu, resolution);
+    }
+}
+
 // Application handling
 struct Application {
     world: World,
@@ -107,29 +129,15 @@ impl ApplicationHandler for Application {
             .expect("Failed to setup present pipeline");
         setup_rendering(&mut self.world, &mut self.schedule).expect("Failed to setup rendering");
 
-        self.world.init_resource::<ResizeState>();
+        self.world.insert_resource(ResizeState::default());
         self.world.add_observer(
-            |trigger: Trigger<ResizeEvent>,
-             mut resize_state: ResMut<ResizeState>,
-             mut gpu: ResMut<GpuContext>,
-             mut depth_texture: ResMut<DepthTexture>,
-             mut uniforms: ResMut<Uniforms>,
-             mut frame_buffer: ResMut<FrameBuffer>,
-             time: Res<TimeContext>| {
-                resize_state.debouncer.tick(time.delta);
-                resize_state.debouncer.push(trigger.event().size);
-                if let Some(size) = resize_state.debouncer.get() {
-                    info!("Resize event: {:?}", size);
-                    gpu.resize(&size);
-                    frame_buffer
-                        .texture
-                        .resize(&gpu.device, &gpu.queue, size.width, size.height);
-                    depth_texture.resize(&gpu.device, size.width, size.height);
-                    let resolution = [size.width as f32, size.height as f32];
-                    uniforms.update_resolution(&gpu, resolution);
-                }
+            |trigger: Trigger<ResizeEvent>, mut resize_state: ResMut<ResizeState>| {
+                let size = (*trigger.event()).size;
+                resize_state.debouncer.push(size);
             },
         );
+        self.schedule.add_systems(resize_system);
+        self.world.flush();
     }
 
     fn window_event(
