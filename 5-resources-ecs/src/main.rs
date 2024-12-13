@@ -41,6 +41,7 @@ static GLOBAL: ProfiledAllocator<std::alloc::System> =
 
 mod debouncer;
 mod gpu;
+mod pass;
 mod pipeline;
 mod texture;
 mod time;

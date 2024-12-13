@@ -1,17 +1,13 @@
 use anyhow::Result;
-use bevy_ecs::{
-    schedule::{Condition, IntoSystemConfigs, Schedule},
-    system::{IntoSystem, Res},
-    world::World,
-};
+use bevy_ecs::{schedule::Schedule, system::Res, world::World};
 use tracing::error;
 use tracing_tracy::client::frame_name;
 
 use crate::{
     gpu::GpuContext,
+    pass::RenderPassBuilder,
     time::TimeContext,
     vertex::{self, VertexBuffers},
-    ResizeState,
 };
 
 use super::{
@@ -62,32 +58,11 @@ pub fn render_system(
 
         // DRAWING DIFFUSE
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("diffuse_render_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &frame_buffer.texture.view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &depth.texture.view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+            let mut render_pass = RenderPassBuilder::new(&mut encoder)
+                .with_label("diffuse_render_pass")
+                .with_color_view(&frame_buffer.texture.view)
+                .with_depth(&depth.texture.view, 1.0)
+                .build()?;
 
             render_pass.set_pipeline(&diffuse_pipeline.pipeline.render_pipeline);
             render_pass.set_bind_group(0, &diffuse_bind_group.bind_group, &[]);
@@ -97,25 +72,10 @@ pub fn render_system(
 
         // DRAWING DEPTH
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("depth_render_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &frame_buffer.texture.view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+            let mut render_pass = RenderPassBuilder::new(&mut encoder)
+                .with_label("depth_render_pass")
+                .with_color_view(&frame_buffer.texture.view)
+                .build()?;
 
             render_pass.set_pipeline(&depth_pipeline.pipeline.render_pipeline);
             render_pass.set_bind_group(0, &depth_bind_group.bind_group, &[]);
@@ -125,25 +85,10 @@ pub fn render_system(
 
         // PRESENT
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("present_render_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+            let mut render_pass = RenderPassBuilder::new(&mut encoder)
+                .with_label("present_render_pass")
+                .with_color_view(&view)
+                .build()?;
 
             render_pass.set_pipeline(&present_pipeline.pipeline.render_pipeline);
             render_pass.set_bind_group(0, &present_bind_group.bind_group, &[]);
@@ -167,6 +112,6 @@ pub fn render_system(
     };
 
     if let Err(e) = f() {
-        // error!("Error during rendering: {:?}", e);
+        error!("Error during rendering: {:?}", e);
     }
 }
