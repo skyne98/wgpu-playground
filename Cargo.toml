@@ -6,6 +6,7 @@ members = [
     "3-triangle-texture",
     "4-depth-texture",
     "5-resources-ecs",
+    "6-egui-ui",
 ]
 resolver = "2"
 
@@ -26,6 +27,8 @@ bevy_ecs = { version = "0.15.0", features = ["trace"] }
 egui_wgpu_backend = "0.32.0"
 egui_winit_platform = "0.24.0"
 egui_demo_lib = "0.29.1"
+epi = "0.17.0"
+egui = "0.29.1"
 
 [workspace.dependencies.image]
 version = "0.25.5"

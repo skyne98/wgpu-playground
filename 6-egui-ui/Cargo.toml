@@ -1,0 +1,24 @@
+[package]
+name = "egui-ui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+winit = { workspace = true }
+wgpu = { workspace = true }
+pollster = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+better-panic = { workspace = true }
+anyhow = { workspace = true }
+bytemuck = { workspace = true }
+image = { workspace = true }
+tokio = { workspace = true }
+glam = { workspace = true }
+tracing-tracy = { workspace = true }
+bevy_ecs = { workspace = true }
+egui_demo_lib = { workspace = true }
+egui_wgpu_backend = { workspace = true }
+egui_winit_platform = { workspace = true }
+epi = { workspace = true }
+egui = { workspace = true }
