@@ -14,6 +14,7 @@ use pipeline::{
     diffuse::setup_diffuse,
     present::{setup_frame_buffer, setup_present, FrameBuffer},
     render::setup_rendering,
+    ui::{setup_ui, UiPipeline},
     GPUPipeline, GPUPipelineBuilder,
 };
 use pollster::FutureExt;
@@ -129,6 +130,7 @@ impl ApplicationHandler for Application {
             .expect("Failed to setup vertex buffers");
         setup_present(&mut self.world, &mut self.schedule)
             .expect("Failed to setup present pipeline");
+        setup_ui(&mut self.world, &mut self.schedule).expect("Failed to setup UI pipeline");
         setup_rendering(&mut self.world, &mut self.schedule).expect("Failed to setup rendering");
 
         self.world.insert_resource(ResizeState::default());
@@ -156,7 +158,14 @@ impl ApplicationHandler for Application {
             gpu.window.id()
         };
 
+        let mut ui = self
+            .world
+            .get_resource_mut::<UiPipeline>()
+            .expect("UiPipeline not found");
+
         if current_window_id == window_id {
+            ui.platform.handle_event(&event);
+
             match event {
                 WindowEvent::CloseRequested => event_loop.exit(),
                 WindowEvent::Resized(size) => {

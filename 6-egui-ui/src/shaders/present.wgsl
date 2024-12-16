@@ -31,17 +31,19 @@ var<uniform> uniforms: Uniforms;
 // References
 // https://github.com/gfx-rs/wgpu/issues/2326#issuecomment-1002301171
 
+fn linear_to_srgb(linear: vec3<f32>) -> vec3<f32> {
+    let a = 0.055;
+    return mix(linear * 12.92, pow(linear, vec3<f32>(1.0 / 2.4)) * (1.0 + a) - vec3<f32>(a), step(vec3<f32>(0.0031308), linear));
+}
+fn srgb_to_linear(srgb: vec3<f32>) -> vec3<f32> {
+    let a = 0.055;
+    return mix(srgb / 12.92, pow((srgb + vec3<f32>(a)) / (1.0 + a), vec3<f32>(2.4)), step(vec3<f32>(0.04045), srgb));
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_coord = in.clip_position.xy / uniforms.resolution;
     let color = textureSample(t_diffuse, s_diffuse, tex_coord);
 
-    if (uniforms.srgb_surface == 0.0) {
-        let cutoff = color.rgb < vec3<f32>(0.04045);
-        let higher = pow((color.rgb + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
-        let lower = color.rgb / vec3<f32>(12.92);
-        return vec4<f32>(select(higher, lower, cutoff), color.a);
-    } else {
-        return color;
-    }
+    return vec4<f32>(srgb_to_linear(color.rgb), color.a);
 }

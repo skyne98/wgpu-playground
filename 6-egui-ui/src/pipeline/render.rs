@@ -1,5 +1,9 @@
 use anyhow::Result;
-use bevy_ecs::{schedule::Schedule, system::Res, world::World};
+use bevy_ecs::{
+    schedule::Schedule,
+    system::{Res, ResMut},
+    world::World,
+};
 use tracing::error;
 use tracing_tracy::client::frame_name;
 
@@ -14,6 +18,7 @@ use super::{
     depth::{DepthBindGroup, DepthPipeline, DepthTexture},
     diffuse::{DiffuseBindGroup, DiffusePipeline},
     present::{FrameBuffer, PresentBindGroup, PresentPipeline},
+    ui::UiPipeline,
 };
 
 pub fn setup_rendering(_world: &mut World, schedule: &mut Schedule) -> Result<()> {
@@ -33,8 +38,9 @@ pub fn render_system(
     present_pipeline: Res<PresentPipeline>,
     vertex_buffers: Res<VertexBuffers>,
     frame_buffer: Res<FrameBuffer>,
+    mut ui: ResMut<UiPipeline>,
 ) {
-    let f = || -> Result<()> {
+    let mut f = || -> Result<()> {
         let _render_guard = tracing_tracy::client::Client::running()
             .expect("client must be running")
             .non_continuous_frame(frame_name!("rendering"));
@@ -83,6 +89,15 @@ pub fn render_system(
             render_pass.draw(0..vertex_buffers.num_depth_vertices, 0..1);
         }
 
+        // UI
+        let tdelta = ui.render(
+            time.total as f64,
+            &frame_buffer.texture.view,
+            &mut encoder,
+            &gpu.device,
+            &gpu.queue,
+        );
+
         // PRESENT
         {
             let mut render_pass = RenderPassBuilder::new(&mut encoder)
@@ -103,6 +118,8 @@ pub fn render_system(
             .non_continuous_frame(frame_name!("presenting"));
         output.present();
         drop(_present_guard);
+
+        ui.clean_up(tdelta);
 
         tracing_tracy::client::Client::running()
             .expect("client must be running")

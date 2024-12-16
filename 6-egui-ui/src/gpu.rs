@@ -26,6 +26,7 @@ pub struct GpuContext {
     pub queue: Queue,
     pub surface: Surface<'static>,
     pub config: wgpu::SurfaceConfiguration,
+    pub scale: f64,
 }
 
 impl GpuContext {
@@ -45,12 +46,15 @@ impl GpuContext {
 
         surface.configure(&device, &config);
 
+        let scale = window.scale_factor();
+
         Ok(Self {
             window,
             device,
             queue,
             surface,
             config,
+            scale,
         })
     }
 
@@ -127,10 +131,10 @@ impl GpuContext {
     fn format_score(format: wgpu::TextureFormat) -> u32 {
         match format {
             // Assign higher scores to preferred formats
-            wgpu::TextureFormat::Rgba16Float => 9,
-            wgpu::TextureFormat::Rgba32Float => 8,
-            wgpu::TextureFormat::Bgra8UnormSrgb => 7,
-            wgpu::TextureFormat::Rgba8UnormSrgb => 6,
+            wgpu::TextureFormat::Bgra8UnormSrgb => 10,
+            wgpu::TextureFormat::Rgba8UnormSrgb => 9,
+            wgpu::TextureFormat::Rgba16Float => 8,
+            wgpu::TextureFormat::Rgba32Float => 7,
             _ => 0, // Default score for other formats
         }
     }

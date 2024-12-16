@@ -6,6 +6,7 @@ pub mod depth;
 pub mod diffuse;
 pub mod present;
 pub mod render;
+pub mod ui;
 
 pub struct GPUPipeline {
     pub render_pipeline: wgpu::RenderPipeline,
