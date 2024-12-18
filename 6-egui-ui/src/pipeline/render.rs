@@ -41,10 +41,6 @@ pub fn render_system(
     mut ui: ResMut<UiPipeline>,
 ) {
     let mut f = || -> Result<()> {
-        let _render_guard = tracing_tracy::client::Client::running()
-            .expect("client must be running")
-            .non_continuous_frame(frame_name!("rendering"));
-
         let output = gpu.surface.get_current_texture()?;
         let view = output.texture.create_view(&Default::default());
 
@@ -64,6 +60,9 @@ pub fn render_system(
 
         // DRAWING DIFFUSE
         {
+            let _guard = tracing_tracy::client::Client::running()
+                .expect("client must be running")
+                .non_continuous_frame(frame_name!("diffuse"));
             let mut render_pass = RenderPassBuilder::new(&mut encoder)
                 .with_label("diffuse_render_pass")
                 .with_color_view(&frame_buffer.texture.view)
@@ -78,6 +77,9 @@ pub fn render_system(
 
         // DRAWING DEPTH
         {
+            let _guard = tracing_tracy::client::Client::running()
+                .expect("client must be running")
+                .non_continuous_frame(frame_name!("depth"));
             let mut render_pass = RenderPassBuilder::new(&mut encoder)
                 .with_label("depth_render_pass")
                 .with_color_view(&frame_buffer.texture.view)
@@ -90,15 +92,22 @@ pub fn render_system(
         }
 
         // UI
+        let _guard = tracing_tracy::client::Client::running()
+            .expect("client must be running")
+            .non_continuous_frame(frame_name!("ui"));
         let tdelta = ui.render(
             time.total as f64,
             &frame_buffer.texture.view,
             &mut encoder,
             &gpu,
         );
+        drop(_guard);
 
         // PRESENT
         {
+            let _guard = tracing_tracy::client::Client::running()
+                .expect("client must be running")
+                .non_continuous_frame(frame_name!("present"));
             let mut render_pass = RenderPassBuilder::new(&mut encoder)
                 .with_label("present_render_pass")
                 .with_color_view(&view)
@@ -109,8 +118,11 @@ pub fn render_system(
             render_pass.draw(0..6, 0..1);
         }
 
+        let _encoder_guard = tracing_tracy::client::Client::running()
+            .expect("client must be running")
+            .non_continuous_frame(frame_name!("encode"));
         gpu.queue.submit(std::iter::once(encoder.finish()));
-        drop(_render_guard);
+        drop(_encoder_guard);
 
         let _present_guard = tracing_tracy::client::Client::running()
             .expect("client must be running")
