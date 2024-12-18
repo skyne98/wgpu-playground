@@ -80,7 +80,6 @@ fn resize_system(
 
     if let Some(size) = resize_state.debouncer.get() {
         info!("Resize event: {:?}", size);
-        gpu.resize(&size);
         frame_buffer
             .texture
             .resize(&gpu.device, &gpu.queue, size.width, size.height);
@@ -135,8 +134,11 @@ impl ApplicationHandler for Application {
 
         self.world.insert_resource(ResizeState::default());
         self.world.add_observer(
-            |trigger: Trigger<ResizeEvent>, mut resize_state: ResMut<ResizeState>| {
+            |trigger: Trigger<ResizeEvent>,
+             mut resize_state: ResMut<ResizeState>,
+             mut gpu: ResMut<GpuContext>| {
                 let size = (*trigger.event()).size;
+                gpu.resize(&size);
                 resize_state.debouncer.push(size);
             },
         );

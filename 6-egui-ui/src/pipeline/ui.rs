@@ -42,9 +42,11 @@ pub fn setup_ui(world: &mut World, schedule: &mut Schedule) -> Result<()> {
 pub fn frame_buffer_changed_system(
     frame_buffer: ResMut<FrameBuffer>,
     gpu: Res<GpuContext>,
-    uniforms: Res<Uniforms>,
+    mut pipeline: ResMut<UiPipeline>,
 ) {
-    // Update the uniforms resolution
+    let new_size = gpu.window.inner_size();
+    let new_scale = gpu.window.scale_factor();
+    pipeline.resize(new_size.width, new_size.height, new_scale);
 }
 
 // =============================== PIPELINE ===============================
@@ -75,13 +77,18 @@ impl UiPipeline {
         })
     }
 
+    pub fn resize(&mut self, width: u32, height: u32, scale: f64) {
+        self.width = width;
+        self.height = height;
+        self.scale = scale;
+    }
+
     pub fn render(
         &mut self,
         elapsed: f64,
         target: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        gpu: &GpuContext,
     ) -> TexturesDelta {
         self.platform.update_time(elapsed);
 
@@ -89,11 +96,9 @@ impl UiPipeline {
         self.platform.begin_frame();
         self.app.ui(&self.platform.context());
 
-        let full_output = self.platform.end_frame(None);
-        let paint_jobs = self
-            .platform
-            .context()
-            .tessellate(full_output.shapes, full_output.pixels_per_point);
+        let full_output = self.platform.end_frame(Some(&gpu.window));
+        let context = self.platform.context();
+        let paint_jobs = context.tessellate(full_output.shapes, context.pixels_per_point());
 
         let screen_descriptor = ScreenDescriptor {
             physical_width: self.width,
@@ -104,19 +109,13 @@ impl UiPipeline {
         let tdelta: egui::TexturesDelta = full_output.textures_delta;
         let egui_rpass = &mut self.render_pass;
         egui_rpass
-            .add_textures(&device, &queue, &tdelta)
+            .add_textures(&gpu.device, &gpu.queue, &tdelta)
             .expect("add texture ok");
-        egui_rpass.update_buffers(&device, &queue, &paint_jobs, &screen_descriptor);
+        egui_rpass.update_buffers(&gpu.device, &gpu.queue, &paint_jobs, &screen_descriptor);
 
         // Record all render passes.
         egui_rpass
-            .execute(
-                encoder,
-                &target,
-                &paint_jobs,
-                &screen_descriptor,
-                Some(wgpu::Color::BLACK),
-            )
+            .execute(encoder, &target, &paint_jobs, &screen_descriptor, None)
             .unwrap();
 
         tdelta

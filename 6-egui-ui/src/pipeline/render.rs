@@ -94,8 +94,7 @@ pub fn render_system(
             time.total as f64,
             &frame_buffer.texture.view,
             &mut encoder,
-            &gpu.device,
-            &gpu.queue,
+            &gpu,
         );
 
         // PRESENT
