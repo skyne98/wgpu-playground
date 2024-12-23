@@ -151,7 +151,7 @@ impl ApplicationHandler for Application {
                 }
 
                 // UI event handling
-                ui.renderer.handle_input(&gpu.window, event);
+                let _ui_response = ui.renderer.handle_input(&gpu.window, event);
             },
         );
         self.schedule.add_systems(window_event_system);

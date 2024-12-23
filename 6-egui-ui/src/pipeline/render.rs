@@ -5,7 +5,7 @@ use bevy_ecs::{
     world::World,
 };
 use egui_wgpu::ScreenDescriptor;
-use tracing::error;
+use tracing::{error, info};
 use tracing_tracy::client::frame_name;
 
 use crate::{
