@@ -1,38 +1,35 @@
 use anyhow::Result;
 use bevy_ecs::{
-    component::Component,
     prelude::resource_changed,
     schedule::{IntoSystemConfigs, Schedule},
     system::{Res, ResMut, Resource},
     world::World,
 };
-use egui::{FullOutput, TexturesDelta};
-use egui_demo_lib::DemoWindows;
-use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
-use egui_winit_platform::Platform;
-use wgpu::{core::device, TextureFormat};
+use wgpu::TextureFormat;
 
-use crate::{
-    texture::{self, Texture},
-    ui::{create_app, create_platform, create_render_pass},
-    uniform::Uniforms,
-    vertex::{DepthVertex, Vertex},
-    GpuContext,
-};
+use crate::gpu::GpuContext;
 
-use super::{present::FrameBuffer, GPUPipeline, GPUPipelineBuilder};
+use super::present::FrameBuffer;
 
 pub fn setup_ui(world: &mut World, schedule: &mut Schedule) -> Result<()> {
     let gpu = world
         .get_resource::<GpuContext>()
         .ok_or_else(|| anyhow::anyhow!("GpuContext resource not found"))?;
-    let frame_buffer = world
-        .get_resource::<FrameBuffer>()
-        .ok_or_else(|| anyhow::anyhow!("FrameBuffer resource not found"))?;
 
-    let pipeline = UiPipeline::new(&gpu, frame_buffer.texture.texture.format())?;
+    let pipeline = EguiRenderer::new(
+        &gpu.device,
+        TextureFormat::Rgba16Float,
+        None,
+        1,
+        &gpu.window,
+    );
+    let app = egui_demo_lib::DemoWindows::default();
+    let ui = EguiState {
+        renderer: pipeline,
+        app,
+    };
 
-    world.insert_resource(pipeline);
+    world.insert_resource(ui);
 
     schedule.add_systems(frame_buffer_changed_system.run_if(resource_changed::<FrameBuffer>));
 
@@ -40,90 +37,144 @@ pub fn setup_ui(world: &mut World, schedule: &mut Schedule) -> Result<()> {
 }
 
 pub fn frame_buffer_changed_system(
-    frame_buffer: ResMut<FrameBuffer>,
+    frame_buffer: Res<FrameBuffer>,
     gpu: Res<GpuContext>,
-    mut pipeline: ResMut<UiPipeline>,
+    mut pipeline: ResMut<EguiState>,
 ) {
     let new_size = gpu.window.inner_size();
     let new_scale = gpu.window.scale_factor();
-    pipeline.resize(new_size.width, new_size.height, new_scale);
 }
 
-// =============================== PIPELINE ===============================
+// =============================== UI RESOURCE ===============================
 #[derive(Resource)]
-pub struct UiPipeline {
-    pub platform: Platform,
-    pub render_pass: RenderPass,
-    pub app: DemoWindows,
-    width: u32,
-    height: u32,
-    scale: f64,
+pub struct EguiState {
+    pub(crate) renderer: EguiRenderer,
+    pub(crate) app: egui_demo_lib::DemoWindows,
 }
-unsafe impl Send for UiPipeline {}
-unsafe impl Sync for UiPipeline {}
-impl UiPipeline {
-    pub fn new(gpu: &GpuContext, format: TextureFormat) -> Result<Self> {
-        let platform = create_platform(gpu.config.width, gpu.config.height, gpu.scale);
-        let render_pass = create_render_pass(&gpu.device, format);
-        let app = create_app();
+unsafe impl Send for EguiState {}
+unsafe impl Sync for EguiState {}
+impl EguiState {
+    pub fn run_app(&mut self) {
+        self.app.ui(&self.renderer.context());
+    }
+}
 
-        Ok(Self {
-            platform,
-            render_pass,
-            app,
-            width: gpu.config.width,
-            height: gpu.config.height,
-            scale: gpu.scale,
-        })
+// =============================== RENDERER ===============================
+use egui::Context;
+use egui_wgpu::wgpu::{CommandEncoder, Device, Queue, StoreOp, TextureView};
+use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
+use egui_winit::State;
+use winit::event::WindowEvent;
+use winit::window::Window;
+
+pub struct EguiRenderer {
+    state: State,
+    renderer: Renderer,
+    frame_started: bool,
+}
+
+impl EguiRenderer {
+    pub fn context(&self) -> &Context {
+        self.state.egui_ctx()
     }
 
-    pub fn resize(&mut self, width: u32, height: u32, scale: f64) {
-        self.width = width;
-        self.height = height;
-        self.scale = scale;
+    pub fn new(
+        device: &Device,
+        output_color_format: TextureFormat,
+        output_depth_format: Option<TextureFormat>,
+        msaa_samples: u32,
+        window: &Window,
+    ) -> EguiRenderer {
+        let egui_context = Context::default();
+
+        let egui_state = egui_winit::State::new(
+            egui_context,
+            egui::viewport::ViewportId::ROOT,
+            &window,
+            Some(window.scale_factor() as f32),
+            None,
+            Some(2 * 1024), // default dimension is 2048
+        );
+        let egui_renderer = Renderer::new(
+            device,
+            output_color_format,
+            output_depth_format,
+            msaa_samples,
+            true,
+        );
+
+        EguiRenderer {
+            state: egui_state,
+            renderer: egui_renderer,
+            frame_started: false,
+        }
     }
 
-    pub fn render(
+    pub fn handle_input(&mut self, window: &Window, event: &WindowEvent) {
+        let _ = self.state.on_window_event(window, event);
+    }
+
+    pub fn ppp(&mut self, v: f32) {
+        self.context().set_pixels_per_point(v);
+    }
+
+    pub fn begin_frame(&mut self, window: &Window) {
+        let raw_input = self.state.take_egui_input(window);
+        self.state.egui_ctx().begin_pass(raw_input);
+        self.frame_started = true;
+    }
+
+    pub fn end_frame_and_draw(
         &mut self,
-        elapsed: f64,
-        target: &wgpu::TextureView,
-        encoder: &mut wgpu::CommandEncoder,
-        gpu: &GpuContext,
-    ) -> TexturesDelta {
-        self.platform.update_time(elapsed);
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        window: &Window,
+        window_surface_view: &TextureView,
+        screen_descriptor: ScreenDescriptor,
+    ) {
+        if !self.frame_started {
+            panic!("begin_frame must be called before end_frame_and_draw can be called!");
+        }
 
-        // Begin to draw the UI frame.
-        self.platform.begin_frame();
-        self.app.ui(&self.platform.context());
+        self.ppp(screen_descriptor.pixels_per_point);
 
-        let full_output = self.platform.end_frame(Some(&gpu.window));
-        let context = self.platform.context();
-        let paint_jobs = context.tessellate(full_output.shapes, context.pixels_per_point());
+        let full_output = self.state.egui_ctx().end_pass();
 
-        let screen_descriptor = ScreenDescriptor {
-            physical_width: self.width,
-            physical_height: self.height,
-            scale_factor: self.scale as f32,
-        };
+        self.state
+            .handle_platform_output(window, full_output.platform_output);
 
-        let tdelta: egui::TexturesDelta = full_output.textures_delta;
-        let egui_rpass = &mut self.render_pass;
-        egui_rpass
-            .add_textures(&gpu.device, &gpu.queue, &tdelta)
-            .expect("add texture ok");
-        egui_rpass.update_buffers(&gpu.device, &gpu.queue, &paint_jobs, &screen_descriptor);
+        let tris = self
+            .state
+            .egui_ctx()
+            .tessellate(full_output.shapes, self.state.egui_ctx().pixels_per_point());
+        for (id, image_delta) in &full_output.textures_delta.set {
+            self.renderer
+                .update_texture(device, queue, *id, image_delta);
+        }
+        self.renderer
+            .update_buffers(device, queue, encoder, &tris, &screen_descriptor);
+        let rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: window_surface_view,
+                resolve_target: None,
+                ops: egui_wgpu::wgpu::Operations {
+                    load: egui_wgpu::wgpu::LoadOp::Load,
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            label: Some("egui main render pass"),
+            occlusion_query_set: None,
+        });
 
-        // Record all render passes.
-        egui_rpass
-            .execute(encoder, &target, &paint_jobs, &screen_descriptor, None)
-            .unwrap();
+        self.renderer
+            .render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
+        for x in &full_output.textures_delta.free {
+            self.renderer.free_texture(x)
+        }
 
-        tdelta
-    }
-
-    pub fn clean_up(&mut self, tdelta: TexturesDelta) {
-        self.render_pass
-            .remove_textures(tdelta)
-            .expect("remove texture ok");
+        self.frame_started = false;
     }
 }

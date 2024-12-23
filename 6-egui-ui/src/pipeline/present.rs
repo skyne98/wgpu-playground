@@ -46,7 +46,7 @@ pub fn setup_frame_buffer(world: &mut World, schedule: &mut Schedule) -> Result<
         .ok_or_else(|| anyhow::anyhow!("GpuContext resource not found"))?;
 
     let texture =
-        Texture::frame_buffer_texture(&gpu.device, gpu.config.width, gpu.config.height, None);
+        Texture::frame_buffer_texture(&gpu.device, gpu.config.width, gpu.config.height, None, 1);
     let frame_buffer = FrameBuffer { texture };
 
     world.insert_resource(frame_buffer);

@@ -14,7 +14,7 @@ use pipeline::{
     diffuse::setup_diffuse,
     present::{setup_frame_buffer, setup_present, FrameBuffer},
     render::setup_rendering,
-    ui::{setup_ui, UiPipeline},
+    ui::{setup_ui, EguiRenderer, EguiState},
     GPUPipeline, GPUPipelineBuilder,
 };
 use pollster::FutureExt;
@@ -46,10 +46,10 @@ mod pass;
 mod pipeline;
 mod texture;
 mod time;
-mod ui;
 mod uniform;
 mod vertex;
 
+// =============================== WINDOW EVENTS ===============================
 #[derive(Resource)]
 pub struct ResizeState {
     pub debouncer: Debouncer<PhysicalSize<u32>>,
@@ -64,20 +64,20 @@ impl Default for ResizeState {
 }
 
 #[derive(Event)]
-pub struct ResizeEvent {
-    pub size: PhysicalSize<u32>,
+pub struct WindowTriggerEvent {
+    pub event: WindowEvent,
 }
 
-fn resize_system(
+fn window_event_system(
     mut resize_state: ResMut<ResizeState>,
-    mut gpu: ResMut<GpuContext>,
+    gpu: ResMut<GpuContext>,
     mut depth_texture: ResMut<DepthTexture>,
     mut uniforms: ResMut<Uniforms>,
     mut frame_buffer: ResMut<FrameBuffer>,
     time: Res<TimeContext>,
 ) {
+    // Resize event handling
     resize_state.debouncer.tick(time.delta);
-
     if let Some(size) = resize_state.debouncer.get() {
         info!("Resize event: {:?}", size);
         frame_buffer
@@ -134,15 +134,27 @@ impl ApplicationHandler for Application {
 
         self.world.insert_resource(ResizeState::default());
         self.world.add_observer(
-            |trigger: Trigger<ResizeEvent>,
+            |trigger: Trigger<WindowTriggerEvent>,
              mut resize_state: ResMut<ResizeState>,
+             mut ui: ResMut<EguiState>,
              mut gpu: ResMut<GpuContext>| {
-                let size = (*trigger.event()).size;
-                gpu.resize(&size);
-                resize_state.debouncer.push(size);
+                let event = &trigger.event().event;
+
+                // Resize event handling
+                match event {
+                    WindowEvent::Resized(size) => {
+                        let size = PhysicalSize::new(size.width, size.height);
+                        gpu.resize(&size);
+                        resize_state.debouncer.push(size);
+                    }
+                    _ => {}
+                }
+
+                // UI event handling
+                ui.renderer.handle_input(&gpu.window, event);
             },
         );
-        self.schedule.add_systems(resize_system);
+        self.schedule.add_systems(window_event_system);
         self.world.flush();
     }
 
@@ -160,19 +172,13 @@ impl ApplicationHandler for Application {
             gpu.window.id()
         };
 
-        let mut ui = self
-            .world
-            .get_resource_mut::<UiPipeline>()
-            .expect("UiPipeline not found");
-
         if current_window_id == window_id {
-            ui.platform.handle_event(&event);
+            self.world.trigger(WindowTriggerEvent {
+                event: event.clone(),
+            });
 
             match event {
                 WindowEvent::CloseRequested => event_loop.exit(),
-                WindowEvent::Resized(size) => {
-                    self.world.trigger(ResizeEvent { size });
-                }
                 WindowEvent::RedrawRequested => {
                     self.schedule.run(&mut self.world);
                 }

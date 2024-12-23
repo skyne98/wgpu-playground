@@ -10,6 +10,7 @@ pub struct Texture {
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
     pub usage: wgpu::TextureUsages,
+    sample_count: u32,
 }
 
 impl Texture {
@@ -82,6 +83,7 @@ impl Texture {
             view,
             sampler,
             usage,
+            sample_count: 1,
         })
     }
 
@@ -121,6 +123,7 @@ impl Texture {
             view,
             sampler,
             usage,
+            sample_count: 1,
         }
     }
 
@@ -129,6 +132,7 @@ impl Texture {
         width: u32,
         height: u32,
         label: Option<&str>,
+        sample_count: u32,
     ) -> Self {
         let size = wgpu::Extent3d {
             width,
@@ -140,7 +144,7 @@ impl Texture {
             label,
             size,
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba16Float,
             usage,
@@ -164,6 +168,7 @@ impl Texture {
             view,
             sampler,
             usage,
+            sample_count,
         }
     }
 }
@@ -183,7 +188,7 @@ impl Texture {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: self.sample_count,
             dimension: wgpu::TextureDimension::D2,
             format,
             usage: self.usage,

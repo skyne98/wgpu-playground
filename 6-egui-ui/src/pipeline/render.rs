@@ -4,6 +4,7 @@ use bevy_ecs::{
     system::{Res, ResMut},
     world::World,
 };
+use egui_wgpu::ScreenDescriptor;
 use tracing::error;
 use tracing_tracy::client::frame_name;
 
@@ -18,7 +19,7 @@ use super::{
     depth::{DepthBindGroup, DepthPipeline, DepthTexture},
     diffuse::{DiffuseBindGroup, DiffusePipeline},
     present::{FrameBuffer, PresentBindGroup, PresentPipeline},
-    ui::UiPipeline,
+    ui::{EguiRenderer, EguiState},
 };
 
 pub fn setup_rendering(_world: &mut World, schedule: &mut Schedule) -> Result<()> {
@@ -38,7 +39,7 @@ pub fn render_system(
     present_pipeline: Res<PresentPipeline>,
     vertex_buffers: Res<VertexBuffers>,
     frame_buffer: Res<FrameBuffer>,
-    mut ui: ResMut<UiPipeline>,
+    mut ui: ResMut<EguiState>,
 ) {
     let mut f = || -> Result<()> {
         let output = gpu.surface.get_current_texture()?;
@@ -95,12 +96,22 @@ pub fn render_system(
         let _guard = tracing_tracy::client::Client::running()
             .expect("client must be running")
             .non_continuous_frame(frame_name!("ui"));
-        let tdelta = ui.render(
-            time.total as f64,
-            &frame_buffer.texture.view,
+        ui.renderer.begin_frame(&gpu.window);
+        ui.run_app();
+        let frame_buffer_size = frame_buffer.texture.texture.size();
+        let screen_descriptor = ScreenDescriptor {
+            size_in_pixels: [frame_buffer_size.width, frame_buffer_size.height],
+            pixels_per_point: gpu.window.scale_factor() as f32,
+        };
+        ui.renderer.end_frame_and_draw(
+            &gpu.device,
+            &gpu.queue,
             &mut encoder,
-            &gpu,
+            &gpu.window,
+            &frame_buffer.texture.view,
+            screen_descriptor,
         );
+
         drop(_guard);
 
         // PRESENT
@@ -129,8 +140,6 @@ pub fn render_system(
             .non_continuous_frame(frame_name!("presenting"));
         output.present();
         drop(_present_guard);
-
-        ui.clean_up(tdelta);
 
         tracing_tracy::client::Client::running()
             .expect("client must be running")

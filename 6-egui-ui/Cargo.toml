@@ -18,7 +18,7 @@ glam = { workspace = true }
 tracing-tracy = { workspace = true }
 bevy_ecs = { workspace = true }
 egui_demo_lib = { workspace = true }
-egui_wgpu_backend = { workspace = true }
-egui_winit_platform = { workspace = true }
+egui-wgpu = { workspace = true }
+egui-winit = { workspace = true }
 epi = { workspace = true }
 egui = { workspace = true }

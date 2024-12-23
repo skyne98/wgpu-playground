@@ -31,8 +31,10 @@ pub struct GpuContext {
 
 impl GpuContext {
     pub fn new(window: Window) -> Result<Self> {
+        let flags = wgpu::InstanceFlags::default();
         let instance = Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
+            flags,
             ..Default::default()
         });
 
