@@ -29,6 +29,7 @@ egui-winit = "0.30.0"
 egui_demo_lib = "0.30.0"
 epi = "0.17.0"
 egui = "0.30.0"
+encase = { version = "0.10.0", features = ["glam"] }
 
 [workspace.dependencies.image]
 version = "0.25.5"

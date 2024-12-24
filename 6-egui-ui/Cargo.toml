@@ -22,3 +22,4 @@ egui-wgpu = { workspace = true }
 egui-winit = { workspace = true }
 epi = { workspace = true }
 egui = { workspace = true }
+encase = { workspace = true }
