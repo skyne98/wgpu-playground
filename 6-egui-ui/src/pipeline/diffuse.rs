@@ -116,7 +116,7 @@ impl DiffusePipeline {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("diffuse_shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/shader.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/diffuse.wgsl").into()),
             });
         let diffuse_pipeline = GPUPipelineBuilder::new(&gpu.device)
             .label("diffuse_pipeline")

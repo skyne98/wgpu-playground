@@ -14,10 +14,7 @@ use crate::{
     GpuContext,
 };
 
-use super::{
-    present::{FrameBuffer, PresentBindGroup, PresentBindGroupLayout, PresentPipeline},
-    GPUPipeline, GPUPipelineBuilder,
-};
+use super::{GPUPipeline, GPUPipelineBuilder};
 
 pub fn setup_depth(world: &mut World, schedule: &mut Schedule) -> Result<()> {
     let gpu = world

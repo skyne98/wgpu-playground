@@ -44,6 +44,7 @@ mod debouncer;
 mod gpu;
 mod pass;
 mod pipeline;
+mod shaders;
 mod texture;
 mod time;
 mod uniform;

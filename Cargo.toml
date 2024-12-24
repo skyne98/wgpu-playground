@@ -29,6 +29,8 @@ egui-winit = "0.30.0"
 egui_demo_lib = "0.30.0"
 epi = "0.17.0"
 egui = "0.30.0"
+wgsl_to_wgpu = "0.12.0"
+encase = "0.10.0"
 
 [workspace.dependencies.image]
 version = "0.25.5"

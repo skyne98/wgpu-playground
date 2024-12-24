@@ -8,6 +8,7 @@ use bevy_ecs::{
 };
 
 use crate::{
+    shaders::present::bind_groups::{BindGroup0, BindGroupLayout0},
     texture::{self, Texture},
     uniform::Uniforms,
     vertex::{DepthVertex, Vertex},
@@ -77,116 +78,44 @@ pub struct FrameBuffer {
 
 // =============================== BIND GROUP ===============================
 #[derive(Resource)]
-pub struct PresentBindGroupLayout {
-    pub layout: wgpu::BindGroupLayout,
-}
-impl PresentBindGroupLayout {
-    pub fn new(gpu: &GpuContext) -> Result<Self> {
-        let diffuse_bind_group_layout =
-            gpu.device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
-                    label: Some("diffuse_bind_group_layout"),
-                });
-
-        Ok(Self {
-            layout: diffuse_bind_group_layout,
-        })
-    }
-}
-
-#[derive(Resource)]
 pub struct PresentBindGroup {
-    pub bind_group: wgpu::BindGroup,
+    pub bind_group: BindGroup0,
 }
 impl PresentBindGroup {
-    pub fn new(
-        gpu: &GpuContext,
-        layout: &PresentBindGroupLayout,
-        texture: &Texture,
-        uniforms_buffer: &Uniforms,
-    ) -> Result<Self> {
-        let bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &layout.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture.view),
+    pub fn new(gpu: &GpuContext, texture: &Texture, uniforms_buffer: &Uniforms) -> Result<Self> {
+        let bind_group = BindGroup0::from_bindings(
+            &gpu.device,
+            BindGroupLayout0 {
+                t_diffuse: &texture.view,
+                s_diffuse: &texture.sampler,
+                uniforms: wgpu::BufferBinding {
+                    buffer: &uniforms_buffer.buffer,
+                    offset: 0,
+                    size: None,
                 },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &uniforms_buffer.buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-            ],
-            label: Some("present_bind_group"),
-        });
+            },
+        );
 
         Ok(Self { bind_group })
     }
     pub fn recreate(
         &mut self,
         device: &wgpu::Device,
-        layout: &PresentBindGroupLayout,
         texture: &Texture,
         uniforms_buffer: &Uniforms,
     ) {
-        self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &layout.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture.view),
+        self.bind_group = BindGroup0::from_bindings(
+            device,
+            BindGroupLayout0 {
+                t_diffuse: &texture.view,
+                s_diffuse: &texture.sampler,
+                uniforms: wgpu::BufferBinding {
+                    buffer: &uniforms_buffer.buffer,
+                    offset: 0,
+                    size: None,
                 },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &uniforms_buffer.buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-            ],
-            label: Some("present_bind_group"),
-        });
+            },
+        );
     }
 }
 
@@ -196,7 +125,7 @@ pub struct PresentPipeline {
     pub pipeline: GPUPipeline,
 }
 impl PresentPipeline {
-    pub fn new(gpu: &GpuContext, bind_group_layout: &PresentBindGroupLayout) -> Result<Self> {
+    pub fn new(gpu: &GpuContext, bind_group: &PresentBindGroup) -> Result<Self> {
         let shader = gpu
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -205,7 +134,7 @@ impl PresentPipeline {
             });
         let pipeline = GPUPipelineBuilder::new(&gpu.device)
             .label("present_pipeline")
-            .bind_group_layout(&bind_group_layout.layout)
+            .bind_group_layout(&bind_group.bind_group.
             .vertex_shader(&shader, "vs_main")
             .fragment_shader(&shader, "fs_main")
             .default_color_target(gpu.config.format)

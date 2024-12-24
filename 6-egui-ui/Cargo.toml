@@ -14,7 +14,7 @@ anyhow = { workspace = true }
 bytemuck = { workspace = true }
 image = { workspace = true }
 tokio = { workspace = true }
-glam = { workspace = true }
+glam = { workspace = true, features = ["bytemuck"] }
 tracing-tracy = { workspace = true }
 bevy_ecs = { workspace = true }
 egui_demo_lib = { workspace = true }
@@ -22,3 +22,7 @@ egui-wgpu = { workspace = true }
 egui-winit = { workspace = true }
 epi = { workspace = true }
 egui = { workspace = true }
+encase = { workspace = true, features = ["glam"] }
+
+[build-dependencies]
+wgsl_to_wgpu = { workspace = true }
